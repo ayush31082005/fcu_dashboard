@@ -1,0 +1,19 @@
+HTTP server error: {
+  code: 'EADDRINUSE',
+  message: 'listen EADDRINUSE: address already in use :::5000'
+}
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+Error: The service was stopped
+    at C:\Users\Ayush_Chaubey\Downloads\FCU Dashboard\server\node_modules\esbuild\lib\main.js:999:38
+    at responseCallbacks.<computed> (C:\Users\Ayush_Chaubey\Downloads\FCU Dashboard\server\node_modules\esbuild\lib\main.js:884:9)
+    at Socket.afterClose (C:\Users\Ayush_Chaubey\Downloads\FCU Dashboard\server\node_modules\esbuild\lib\main.js:875:28)
+    at Socket.emit (node:events:521:24)
+    at endReadableNT (node:internal/streams/readable:1729:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+  name: 'TransformError'
+}
+
+Node.js v24.18.0

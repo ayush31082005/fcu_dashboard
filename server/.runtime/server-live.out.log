@@ -1,0 +1,55 @@
+
+> server@1.0.0 dev
+> nodemon --exec tsx src/index.ts
+
+[33m[nodemon] 3.1.14[39m
+[33m[nodemon] to restart at any time, enter `rs`[39m
+[33m[nodemon] watching path(s): *.*[39m
+[33m[nodemon] watching extensions: ts,json[39m
+[32m[nodemon] starting `tsx src/index.ts`[39m
+◇ injected env (11) from .env // tip: ⌘ override existing { override: true }
+◇ injected env (0) from .env // tip: ⌘ suppress logs { quiet: true }
+Database connected successfully.
+FCU authentication and workflow tables are ready.
+Server is running on port 5000
+[32m[nodemon] clean exit - waiting for changes before restart[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `tsx src/index.ts`[39m
+◇ injected env (11) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+◇ injected env (0) from .env // tip: ⌘ enable debugging { debug: true }
+Database connected successfully.
+FCU authentication and workflow tables are ready.
+Server is running on port 5000
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `tsx src/index.ts`[39m
+◇ injected env (11) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+◇ injected env (0) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+Database connected successfully.
+FCU authentication and workflow tables are ready.
+Server is running on port 5000
+[32m[nodemon] clean exit - waiting for changes before restart[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `tsx src/index.ts`[39m
+◇ injected env (11) from .env // tip: ◈ encrypted .env [www.dotenvx.com]
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `tsx src/index.ts`[39m
+[32m[nodemon] restarting due to changes...[39m
+◇ injected env (11) from .env // tip: ⌘ suppress logs { quiet: true }
+[32m[nodemon] starting `tsx src/index.ts`[39m
+[32m[nodemon] restarting due to changes...[39m
+◇ injected env (11) from .env // tip: ⌘ enable debugging { debug: true }
+[32m[nodemon] starting `tsx src/index.ts`[39m
+◇ injected env (11) from .env // tip: ◈ encrypted .env [www.dotenvx.com]
+◇ injected env (0) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+Database connected successfully.
+FCU authentication and workflow tables are ready.
+Server is running on port 5000
+WhatsApp rejection message: {
+  mobile: '919876543210',
+  templateId: 'https://console.messageinbox.io/restapi/request.php?authkey=86e674997217d269&mobile=8423573070&country_code=91&wid=44859&1=Ayush',
+  templateVariables: { var1: 'Amit Kumar', var2: 'APP0000011' }
+}
+WhatsApp rejection response: {
+  LogID: '2d7435b8d1204b067b25c7e084777328',
+  Message: 'Submitted Successfully'
+}

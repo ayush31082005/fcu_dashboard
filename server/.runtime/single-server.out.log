@@ -1,0 +1,5 @@
+◇ injected env (11) from .env // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
+◇ injected env (0) from .env // tip: ⌘ enable debugging { debug: true }
+Database connected successfully.
+FCU authentication and workflow tables are ready.
+Server is running on port 5000

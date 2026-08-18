@@ -1,0 +1,56 @@
+Error connecting to the database: {
+  code: 'EACCES',
+  errno: -4092,
+  message: 'connect EACCES 193.203.184.216:3306',
+  host: '193.203.184.216',
+  database: 'u368199755_crmpaday'
+}
+Server startup failed because the database schema could not be prepared: { code: 'EACCES', message: 'connect EACCES 193.203.184.216:3306' }
+Error connecting to the database: {
+  code: 'EACCES',
+  errno: -4092,
+  message: 'connect EACCES 193.203.184.216:3306',
+  host: '193.203.184.216',
+  database: 'u368199755_crmpaday'
+}
+Server startup failed because the database schema could not be prepared: { code: 'EACCES', message: 'connect EACCES 193.203.184.216:3306' }
+Error connecting to the database: {
+  code: 'EACCES',
+  errno: -4092,
+  message: 'connect EACCES 193.203.184.216:3306',
+  host: '193.203.184.216',
+  database: 'u368199755_crmpaday'
+}
+Server startup failed because the database schema could not be prepared: { code: 'EACCES', message: 'connect EACCES 193.203.184.216:3306' }
+Error connecting to the database: {
+  code: 'EACCES',
+  errno: -4092,
+  message: 'connect EACCES 193.203.184.216:3306',
+  host: '193.203.184.216',
+  database: 'u368199755_crmpaday'
+}
+Server startup failed because the database schema could not be prepared: { code: 'EACCES', message: 'connect EACCES 193.203.184.216:3306' }
+Error connecting to the database: {
+  code: 'EACCES',
+  errno: -4092,
+  message: 'connect EACCES 193.203.184.216:3306',
+  host: '193.203.184.216',
+  database: 'u368199755_crmpaday'
+}
+Server startup failed because the database schema could not be prepared: { code: 'EACCES', message: 'connect EACCES 193.203.184.216:3306' }
+Error connecting to the database: {
+  code: 'EACCES',
+  errno: -4092,
+  message: 'connect EACCES 193.203.184.216:3306',
+  host: '193.203.184.216',
+  database: 'u368199755_crmpaday'
+}
+Server startup failed because the database schema could not be prepared: { code: 'EACCES', message: 'connect EACCES 193.203.184.216:3306' }
+Error connecting to the database: {
+  code: 'EACCES',
+  errno: -4092,
+  message: 'connect EACCES 193.203.184.216:3306',
+  host: '193.203.184.216',
+  database: 'u368199755_crmpaday'
+}
+Server startup failed because the database schema could not be prepared: { code: 'EACCES', message: 'connect EACCES 193.203.184.216:3306' }

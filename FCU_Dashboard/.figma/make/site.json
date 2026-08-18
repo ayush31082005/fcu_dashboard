@@ -1,0 +1,10 @@
+{
+  "description": "Streamline case management and document tracking for fraud control teams with an intuitive dashboard that enhances efficiency and collaboration.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

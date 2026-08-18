@@ -1,0 +1,266 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import 'tailwindcss';
+
+@theme inline {
+  --color-background: #06080c;
+  --color-foreground: #f3f6fb;
+  --color-card: #11151c;
+  --color-card-foreground: #f3f6fb;
+  --color-primary: #4f46e5;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #161b24;
+  --color-secondary-foreground: #cbd5e1;
+  --color-muted: #7b879b;
+  --color-accent: #3b82f6;
+  --color-border: #2b3342;
+  --radius: 6px;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  font-family: 'Inter', sans-serif;
+  scrollbar-width: thin;
+  scrollbar-color: #64748b transparent;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  background: linear-gradient(135deg, #f8fbff 0%, #f5f7fb 45%, #eef2f7 100%);
+  color: #0f172a;
+}
+
+::selection {
+  background: rgba(79, 70, 229, 0.45);
+  color: #ffffff;
+}
+
+.mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.bg-white {
+  background-color: #ffffff !important;
+}
+
+.bg-gray-50 {
+  background-color: #f8fafc !important;
+}
+
+.bg-gray-100 {
+  background-color: #f1f5f9 !important;
+}
+
+.bg-gray-200 {
+  background-color: #e2e8f0 !important;
+}
+
+:is(.bg-\[\#f0f2f5\], .bg-\[\#f0f4fa\], .bg-\[\#f8fafc\], .bg-\[\#f4f6fb\]) {
+  background-color: #f8fafc !important;
+}
+
+.text-gray-800 {
+  color: #0f172a !important;
+}
+
+.text-gray-700 {
+  color: #334155 !important;
+}
+
+.text-gray-600 {
+  color: #475569 !important;
+}
+
+.text-gray-500 {
+  color: #64748b !important;
+}
+
+.text-gray-400 {
+  color: #94a3b8 !important;
+}
+
+:is(.text-\[\#1e3a5f\]) {
+  color: #0f172a !important;
+}
+
+.border-gray-200 {
+  border-color: #e2e8f0 !important;
+}
+
+.border-gray-100 {
+  border-color: #f1f5f9 !important;
+}
+
+input,
+select,
+textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #dbe3ee !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #8a95a8 !important;
+}
+
+.crm-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+}
+
+.crm-panel {
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+}
+
+.crm-input {
+  width: 100%;
+  border: 1px solid #dbe3ee;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 0.6rem 0.8rem;
+  font-size: 11px;
+  color: #0f172a;
+  outline: none;
+}
+
+.crm-input:focus {
+  border-color: #60a5fa;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.14);
+}
+
+.crm-btn-primary {
+  border-radius: 12px;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  color: #ffffff;
+  padding: 0.6rem 0.9rem;
+  font-weight: 600;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.14);
+}
+
+.crm-btn-secondary {
+  border-radius: 12px;
+  border: 1px solid #dbe3ee;
+  background: #ffffff;
+  color: #475569;
+  padding: 0.6rem 0.9rem;
+  font-weight: 600;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Customer upload hero: edge-to-edge inside its own responsive panel. */
+.customer-upload-content > div:first-child {
+  width: calc(100% + 2rem) !important;
+  margin-left: -1rem !important;
+  margin-top: -1.25rem !important;
+}
+
+@media (min-width: 640px) {
+  .customer-upload-content > div:first-child {
+    width: calc(100% + 4rem) !important;
+    margin-left: -2rem !important;
+    margin-top: -2rem !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  .customer-upload-content > div:first-child {
+    width: calc(100% + 5rem) !important;
+    margin-left: -2.5rem !important;
+  }
+}
+
+@media (min-width: 1280px) {
+  .customer-upload-content > div:first-child {
+    width: calc(100% + 8rem) !important;
+    margin-left: -4rem !important;
+  }
+}
+/* Keep the credit-gauge needle visually behind the score label. */
+.credit-bureau-panel svg + .absolute {
+  z-index: 2;
+  pointer-events: none;
+}
+
+.credit-bureau-panel svg + .absolute > div:first-child {
+  width: max-content;
+  margin-inline: auto;
+  padding-inline: 0.75rem;
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 0 18px 12px rgba(255, 255, 255, 0.9);
+  line-height: 1;
+}
+
+/* Credit score gauge: keep every colour on one shared semicircle. */
+.credit-bureau-panel svg path:nth-of-type(-n + 5) {
+  d: path("M 25 115 A 95 95 0 0 1 215 115");
+  fill: none;
+  stroke-width: 25;
+  stroke-linecap: butt;
+}
+
+.credit-bureau-panel svg path:nth-of-type(1) {
+  stroke-dasharray: 60 240;
+  stroke-dashoffset: 0;
+  stroke-linecap: round;
+}
+
+.credit-bureau-panel svg path:nth-of-type(2) {
+  stroke-dasharray: 60 240;
+  stroke-dashoffset: -60;
+}
+
+.credit-bureau-panel svg path:nth-of-type(3) {
+  stroke-dasharray: 55 245;
+  stroke-dashoffset: -120;
+}
+
+.credit-bureau-panel svg path:nth-of-type(4) {
+  stroke-dasharray: 58 242;
+  stroke-dashoffset: -175;
+}
+
+.credit-bureau-panel svg path:nth-of-type(5) {
+  stroke-dasharray: 67 233;
+  stroke-dashoffset: -233;
+  stroke-linecap: round;
+}
