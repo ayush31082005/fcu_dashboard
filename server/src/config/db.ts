@@ -20,20 +20,7 @@ const pool = mysql.createPool({
   keepAliveInitialDelay: 0,
 });
 
-// Test connection
-pool.getConnection()
-  .then((connection) => {
-    console.log('Database connected successfully.');
-    connection.release();
-  })
-  .catch((err: any) => {
-    console.error('Error connecting to the database:', {
-      code: err?.code || 'UNKNOWN_DB_ERROR',
-      errno: err?.errno,
-      message: err?.message || String(err),
-      host: process.env.DB_HOST || 'localhost',
-      database: process.env.DB_NAME || 'geetpay',
-    });
-  });
+// Test connection block removed for serverless compatibility
+
 
 export default pool;
