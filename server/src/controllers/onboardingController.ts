@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import pool from '../config/db';
+import { uploadToCloudinary } from '../config/cloudinary';
 import fs from 'fs';
 import path from 'path';
 
@@ -238,30 +239,17 @@ export const uploadSelfie = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    // Strip prefix if present (e.g. data:image/jpeg;base64,)
-    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-    const buffer = Buffer.from(base64Data, 'base64');
-
-    const uploadsDir = path.join(__dirname, '../../uploads/selfies');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-
-    const fileName = `selfie_${userId}_${Date.now()}.jpg`;
-    const filePath = path.join(uploadsDir, fileName);
-    
-    fs.writeFileSync(filePath, buffer);
-
-    const relativePath = `uploads/selfies/${fileName}`;
+    const dataUri = imageBase64.startsWith('data:') ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`;
+    const cloudinaryUrl = await uploadToCloudinary(dataUri, 'selfies', `selfie_${userId}_${Date.now()}`);
 
     const query = `
       INSERT INTO kyc_documents (user_id, selfie_path) 
       VALUES (?, ?)
     `;
     
-    await pool.query(query, [userId, relativePath]);
+    await pool.query(query, [userId, cloudinaryUrl]);
 
-    res.status(200).json({ status: 'success', message: 'Selfie uploaded successfully', path: relativePath });
+    res.status(200).json({ status: 'success', message: 'Selfie uploaded successfully', path: cloudinaryUrl });
   } catch (error: any) {
     console.error('uploadSelfie error:', error);
     res.status(500).json({ status: 'error', message: 'Failed to upload selfie', error: error?.message });

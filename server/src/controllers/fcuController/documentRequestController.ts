@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { uploadToCloudinary } from '../../config/cloudinary';
 import { findFcuUserByEmail } from '../../models/fcuModels/authModel';
 import { createDocumentRequestRecord, findDocumentRequestByApplication, findDocumentRequestByToken, findDocumentRequestRecipient, saveRequestedDocumentUpload } from '../../models/fcuModels/documentRequestModel';
 import { sendWhatsAppDocumentRequest } from '../../utils/whatsapp';
@@ -100,13 +101,16 @@ export const uploadCustomerDocument = async (req: Request, res: Response): Promi
     if (!request || requestStatus(request) !== 'ACTIVE' || requestIsExpired(request)) {
       res.status(410).json({ status: 'error', message: 'Document request is invalid or expired' }); return;
     }
-    const uploadsDir = path.join(__dirname, '../../../uploads/fcu_customer_docs');
-    fs.mkdirSync(uploadsDir, { recursive: true });
     const savedName = `${token.slice(0, 10)}_${documentId}_${Date.now()}_${originalName}`;
-    fs.writeFileSync(path.join(uploadsDir, savedName), buffer);
-    const relativePath = `uploads/fcu_customer_docs/${savedName}`;
-    const saved = await saveRequestedDocumentUpload(token, documentId, originalName, relativePath);
-    if (!saved) { fs.unlinkSync(path.join(uploadsDir, savedName)); res.status(404).json({ status: 'error', message: 'Requested document not found' }); return; }
+    
+    // Convert base64 buffer to data URI for Cloudinary
+    const mimeType = match[1];
+    const dataUri = `data:${mimeType};base64,${match[2]}`;
+    
+    const cloudinaryUrl = await uploadToCloudinary(dataUri, 'fcu_customer_docs', savedName);
+    
+    const saved = await saveRequestedDocumentUpload(token, documentId, originalName, cloudinaryUrl);
+    if (!saved) { res.status(404).json({ status: 'error', message: 'Requested document not found' }); return; }
     res.json({ status: 'success', message: 'Document uploaded successfully', data: normalize(await findDocumentRequestByToken(token)) });
   } catch (error) {
     console.error('FCU customer upload error:', error);

@@ -1,4 +1,6 @@
 import { Request, Response } from 'express';
+import { ResultSetHeader, RowDataPacket } from 'mysql2';
+import { uploadToCloudinary } from '../config/cloudinary';
 import pool from '../config/db';
 
 async function getInternalUserId(rawUserId: string | string[]): Promise<number | null> {
@@ -369,28 +371,15 @@ export const uploadDocument = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    // Decode base64
-    const base64Data = imageBase64.replace(/^data:.*?;base64,/, '');
-    const buffer = Buffer.from(base64Data, 'base64');
-
-    // Create directory if not exists
-    const uploadsDir = path.join(__dirname, '../../uploads/customer_docs');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-
-    const savedFileName = `doc_${userId}_${Date.now()}_${fileName.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-    const filePath = path.join(uploadsDir, savedFileName);
-    fs.writeFileSync(filePath, buffer);
-
-    const relativePath = `uploads/customer_docs/${savedFileName}`;
+    const dataUri = imageBase64.startsWith('data:') ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`;
+    const cloudinaryUrl = await uploadToCloudinary(dataUri, 'customer_docs', `doc_${userId}_${Date.now()}_${fileName.replace(/[^a-zA-Z0-9.]/g, '_')}`);
 
     // Update missing docs table for the specific doc
     await pool.query(`
       UPDATE telecaller_missing_docs 
       SET status = 'UPLOADED', customer_update = ? 
       WHERE user_id = ? AND name = ? AND status = 'PENDING'
-    `, [`Uploaded: /${relativePath}`, userId, docType]);
+    `, [`Uploaded: ${cloudinaryUrl}`, userId, docType]);
 
     // Check if all requested docs for this link are now uploaded
     const [linkRows]: any = await pool.query(`SELECT doc_types FROM telecaller_share_links WHERE id = ?`, [linkId]);
