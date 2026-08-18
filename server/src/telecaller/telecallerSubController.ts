@@ -401,7 +401,7 @@ export const uploadDocument = async (req: Request, res: Response): Promise<void>
     }
 
     await logAction(userId, req, 'DOCUMENT UPLOADED', `Type: ${docType}`);
-    res.json({ status: 'success', message: 'Document uploaded successfully', path: `/${relativePath}` });
+    res.json({ status: 'success', message: 'Document uploaded successfully', path: cloudinaryUrl });
   } catch (error: any) {
     console.error('Error uploading document:', error);
     res.status(500).json({ status: 'error', message: 'Internal server error', error: error?.message });
