@@ -2,31 +2,24 @@ import pool from './src/config/db';
 import fs from 'fs';
 import path from 'path';
 
-async function extractDbImages() {
+async function checkAllUserImages() {
   try {
-    const [rows]: any = await pool.query('SELECT ac.user_id, ac.profile_image, kd.selfie_path FROM aadhaar_card_details ac LEFT JOIN kyc_documents kd ON kd.user_id = ac.user_id');
-    const baseUploads = path.join(__dirname, 'uploads');
+    console.log('--- CUSTOMER DOCUMENTS FOR USER 5 ---');
+    const [cdocs]: any = await pool.query('SELECT * FROM customer_documents WHERE user_id = 5 OR lead_id LIKE "%4403%"');
+    console.log(JSON.stringify(cdocs, null, 2));
 
-    for (const r of rows) {
-      if (r.profile_image && r.selfie_path) {
-        const cleanBase64 = String(r.profile_image).replace(/^data:image\/\w+;base64,/, '').replace(/\s+/g, '');
-        const imageBuffer = Buffer.from(cleanBase64, 'base64');
+    console.log('--- FIELD VERIFICATION UPLOADS FOR APP 5 ---');
+    const [fuploads]: any = await pool.query('SELECT id, mime_type, LENGTH(image_data) as img_len FROM field_verification_uploads');
+    console.log(JSON.stringify(fuploads, null, 2));
 
-        // Clean relative path: strip leading uploads/ or /uploads/
-        const relativePath = r.selfie_path.replace(/^\/*(uploads\/)*/i, '');
-        
-        const path1 = path.join(baseUploads, relativePath);
-        const path2 = path.join(baseUploads, r.selfie_path.replace(/^\/+/, ''));
+    console.log('--- FIELD VERIFICATION REPORTS ---');
+    const [freports]: any = await pool.query('SELECT id, application_id, report_data FROM field_verification_reports');
+    console.log(JSON.stringify(freports, null, 2));
 
-        osEnsureDir(path.dirname(path1));
-        osEnsureDir(path.dirname(path2));
-
-        fs.writeFileSync(path1, imageBuffer);
-        fs.writeFileSync(path2, imageBuffer);
-
-        console.log(`Successfully wrote DB base64 image to: ${path1}`);
-        console.log(`Successfully wrote DB base64 image to: ${path2}`);
-      }
+    console.log('--- ALL FILES IN SERVER/UPLOADS/SELFIES ---');
+    const selfieDir = path.join(__dirname, 'uploads', 'selfies');
+    if (fs.existsSync(selfieDir)) {
+      console.log(fs.readdirSync(selfieDir));
     }
   } catch (err: any) {
     console.error(err);
@@ -34,10 +27,4 @@ async function extractDbImages() {
   process.exit(0);
 }
 
-function osEnsureDir(dirPath: string) {
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
-  }
-}
-
-extractDbImages();
+checkAllUserImages();

@@ -1716,7 +1716,6 @@ function CaseDetailDrawer({
                   image={ekycAssetUrl(ekyc?.selfie)}
                   fallback="👤"
                   caption="Live selfie captured"
-                  fallbackImage="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80"
                   wide
                 />
                 <EkycImageCard
@@ -1725,7 +1724,6 @@ function CaseDetailDrawer({
                   image={ekycAssetUrl(ekyc?.aadhaar?.photo || ekyc?.fetchedAadhaar?.photo)}
                   fallback="🪪"
                   caption="Aadhaar record photo"
-                  fallbackImage="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80"
                   wide
                 />
                 <div className="flex flex-col justify-between overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,.05)]">
@@ -2320,31 +2318,27 @@ function EkycCard({ title, subtitle, badge, tone, fields }: { title: string; sub
   </>
 }
 
-function EkycImageCard({ title, subtitle, image, fallback, caption, wide = false, fallbackImage }: { title: string; subtitle: string; image?: string | null; fallback: string; caption: string; wide?: boolean; fallbackImage?: string }) {
-  const defaultFallbackUrl = fallbackImage || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80"
+function EkycImageCard({ title, subtitle, image, fallback, caption, wide = false }: { title: string; subtitle: string; image?: string | null; fallback: string; caption: string; wide?: boolean }) {
+  const [hasError, setHasError] = useState(false)
   return <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,.05)]">
     <div className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white px-4 py-3"><div><div className="text-[13px] font-bold text-slate-900">{title}</div><div className="text-[10px] text-slate-500">{subtitle}</div></div><span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[9px] font-bold text-slate-600">Verified</span></div>
     <div className={`flex items-center justify-center bg-slate-50 p-4 ${wide ? 'min-h-64' : 'h-[220px]'}`}><div className={`${wide ? 'w-full max-w-sm' : 'w-full'} overflow-hidden rounded-2xl border border-slate-200 bg-white p-3 text-center shadow-sm`}>
       <div className={`${wide ? 'h-40' : 'h-32'} flex items-center justify-center overflow-hidden rounded-xl bg-slate-100`}>
-        {image ? (
+        {image && !hasError ? (
           <img
             src={image}
             alt={title}
             className="h-full w-full object-contain"
-            onError={(e) => {
-              e.currentTarget.onerror = null
-              e.currentTarget.src = defaultFallbackUrl
-            }}
+            onError={() => setHasError(true)}
           />
         ) : (
-          <img
-            src={defaultFallbackUrl}
-            alt={title}
-            className="h-full w-full object-contain"
-          />
+          <div className="flex flex-col items-center justify-center gap-1 text-slate-400">
+            <span className="text-4xl">{fallback}</span>
+            <span className="text-[10px] text-slate-500">{caption}</span>
+          </div>
         )}
       </div>
-      <div className="mt-3 text-[11px] font-bold text-slate-800">{caption}</div><div className="mt-1 text-[9px] text-slate-500">{image ? 'Securely loaded from customer dossier.' : 'Loaded from identity record.'}</div>
+      <div className="mt-3 text-[11px] font-bold text-slate-800">{caption}</div><div className="mt-1 text-[9px] text-slate-500">{image && !hasError ? 'Loaded from customer dossier.' : ''}</div>
     </div></div>
   </div>
 }
