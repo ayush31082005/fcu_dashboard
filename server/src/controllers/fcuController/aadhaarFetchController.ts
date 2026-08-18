@@ -12,10 +12,10 @@ export const fetchAadhaarDetails = async (req: Request, res: Response): Promise<
     const customer = await findCaseForAadhaarFetch(applicationId);
     if (!customer) { res.status(404).json({ status:'error', message:'Application not found' }); return; }
 
-    const apiId = process.env['adhar-verification-api-id'];
-    const apiKey = process.env['adhar-verification-api-key'];
-    const tokenId = process.env['adhar-verification-token-id'];
-    const apiUrl = process.env['adhar-verification-api-url'] || 'https://javabackend.idspay.in/api/v1/prod/srv3/verification/aadhar';
+    const apiId = process.env.adhar_verification_api_id;
+    const apiKey = process.env.adhar_verification_api_key;
+    const tokenId = process.env.adhar_verification_token_id;
+    const apiUrl = process.env.adhar_verification_api_url || 'https://javabackend.idspay.in/api/v1/prod/srv3/verification/aadhar';
     if (!apiId || !apiKey || !tokenId) { res.status(503).json({ status:'error', message:'Aadhaar API credentials are not configured' }); return; }
 
     const response = await fetch(apiUrl, { method:'POST', headers:{ Accept:'application/json','Content-Type':'application/json' },

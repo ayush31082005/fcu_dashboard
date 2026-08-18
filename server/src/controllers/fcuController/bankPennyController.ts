@@ -33,12 +33,12 @@ export const verifyBankPenny = async (req: Request, res: Response): Promise<void
       res.status(400).json({ status: 'error', message: 'Valid bank account number and IFSC code are required' }); return;
     }
 
-    const apiId = process.env['bank-verification-penny-api-id'];
-    const apiKey = process.env['bank-verification-penny-api-key'];
-    const tokenId = process.env['bank-verification-penny-token-id'];
-    const apiUrl = process.env['bank-verification-penny-api-url']
+    const apiId = process.env.bank_verification_penny_api_id;
+    const apiKey = process.env.bank_verification_penny_api_key;
+    const tokenId = process.env.bank_verification_penny_token_id;
+    const apiUrl = process.env.bank_verification_penny_api_url
       || 'https://javabackend.idspay.in/api/v1/prod/idfc/beneficiary';
-    const configuredTimeout = Number(process.env['bank-verification-penny-timeout-ms']);
+    const configuredTimeout = Number(process.env.bank_verification_penny_timeout_ms);
     const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout >= 10_000
       ? configuredTimeout : 60_000;
     if (!apiId || !apiKey || !tokenId) {
