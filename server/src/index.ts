@@ -428,4 +428,11 @@ const startServer = async () => {
   }
 };
 
-startServer();
+if (process.env.VERCEL !== '1') {
+  startServer();
+}
+
+// Export app for Vercel serverless deployment
+export default app;
+module.exports = app;
+
