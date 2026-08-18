@@ -19,7 +19,7 @@ app.use('/uploads/field-verification', express.static(sharedFieldUploadDirectory
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:8443', "https://geetpay.com"],
+  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:8443', 'https://geetpay.com', 'https://fcu-dashboard-ehsj.vercel.app'],
   credentials: true
 }));
 app.use(helmet({ crossOriginResourcePolicy: false }));
