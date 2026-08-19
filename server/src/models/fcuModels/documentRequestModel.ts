@@ -63,7 +63,7 @@ export const hasIncompleteDocumentRequest = async (applicationId: number) => {
   return rows[0].status !== 'COMPLETED' || Number(rows[0].pending_count) > 0;
 };
 
-export const createDocumentRequestRecord = async (applicationId: number, token: string, userId: number, documents: string[]) => {
+export const createDocumentRequestRecord = async (applicationId: number, token: string, userId: number | null, documents: string[]) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -77,7 +77,7 @@ export const createDocumentRequestRecord = async (applicationId: number, token: 
     const [result]: any = await connection.query(`
       INSERT INTO fcu_document_requests (application_id, token, status, expires_at, created_by)
       VALUES (?, ?, 'ACTIVE', DATE_ADD(NOW(), INTERVAL 7 DAY), ?)
-    `, [applicationId, token, userId]);
+    `, [applicationId, token, userId || null]);
     for (const documentName of documents) {
       await connection.query('INSERT INTO fcu_requested_documents (request_id, document_name) VALUES (?, ?)', [result.insertId, documentName]);
     }
@@ -104,5 +104,10 @@ export const saveRequestedDocumentUpload = async (token: string, documentId: num
       SELECT 1 FROM fcu_requested_documents d WHERE d.request_id=r.id AND d.status='PENDING'
     )
   `, [token]);
+  return true;
+};
+
+export const closeDocumentRequestByApplication = async (applicationId: number) => {
+  await dbQuery("UPDATE fcu_document_requests SET status='CLOSED' WHERE application_id=? AND status='ACTIVE'", [applicationId]);
   return true;
 };

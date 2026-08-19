@@ -14,6 +14,7 @@ const ckycController_1 = require("../../controllers/fcuController/ckycController
 const aadhaarFetchController_1 = require("../../controllers/fcuController/aadhaarFetchController");
 const mobileBankController_1 = require("../../controllers/fcuController/mobileBankController");
 const corporateEmailController_1 = require("../../controllers/fcuController/corporateEmailController");
+const bankDetailsController_1 = require("../../controllers/fcuController/bankDetailsController");
 const router = (0, express_1.Router)();
 // Registration is API-only by design; use Postman or another trusted admin client.
 router.post('/register', authController_1.register);
@@ -35,6 +36,7 @@ router.patch('/cases/:caseId/ekyc/:checkId', authMiddleware_1.requireFcuAuth, ca
 router.post('/cases/:caseId/actions', authMiddleware_1.requireFcuAuth, casesController_1.performWorkflowAction);
 router.post('/cases/:caseId/mobile-to-upi', authMiddleware_1.requireFcuAuth, mobileUpiController_1.lookupMobileUpi);
 router.post('/cases/:caseId/bank-penny-verification', authMiddleware_1.requireFcuAuth, bankPennyController_1.verifyBankPenny);
+router.patch('/cases/:caseId/bank-details', authMiddleware_1.requireFcuAuth, bankDetailsController_1.updateBankDetails);
 router.post('/cases/:caseId/mobile-to-bank', authMiddleware_1.requireFcuAuth, mobileBankController_1.lookupMobileBank);
 router.post('/cases/:caseId/corporate-email-verification', authMiddleware_1.requireFcuAuth, corporateEmailController_1.verifyCorporateEmail);
 router.post('/cases/:caseId/ckyc-search', authMiddleware_1.requireFcuAuth, ckycController_1.searchCkyc);
@@ -44,6 +46,7 @@ router.get('/cases/:caseId/history', authMiddleware_1.requireFcuAuth, casesContr
 router.post('/cases/:caseId/history', authMiddleware_1.requireFcuAuth, casesController_1.addCaseNote);
 router.get('/cases/:caseId/document-requests', authMiddleware_1.requireFcuAuth, documentRequestController_1.getDocumentRequest);
 router.post('/cases/:caseId/document-requests', authMiddleware_1.requireFcuAuth, documentRequestController_1.createDocumentRequest);
+router.delete('/cases/:caseId/document-requests', authMiddleware_1.requireFcuAuth, documentRequestController_1.disableDocumentRequest);
 router.post('/cases/:caseId/document-requests/share', authMiddleware_1.requireFcuAuth, documentRequestController_1.shareDocumentRequest);
 // The random token authorizes a customer to view and upload only requested documents.
 router.get('/customer-upload/:token', documentRequestController_1.getCustomerDocumentRequest);

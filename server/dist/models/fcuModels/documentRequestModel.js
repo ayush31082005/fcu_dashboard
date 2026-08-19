@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.saveRequestedDocumentUpload = exports.createDocumentRequestRecord = exports.hasIncompleteDocumentRequest = exports.findDocumentRequestByToken = exports.findDocumentRequestByApplication = exports.findDocumentRequestRecipient = void 0;
+exports.closeDocumentRequestByApplication = exports.saveRequestedDocumentUpload = exports.createDocumentRequestRecord = exports.hasIncompleteDocumentRequest = exports.findDocumentRequestByToken = exports.findDocumentRequestByApplication = exports.findDocumentRequestRecipient = void 0;
 const db_1 = __importDefault(require("../../config/db"));
 const dbQuery_1 = require("../../config/dbQuery");
 const findDocumentRequestRecipient = async (applicationId) => {
@@ -83,7 +83,7 @@ const createDocumentRequestRecord = async (applicationId, token, userId, documen
         const [result] = await connection.query(`
       INSERT INTO fcu_document_requests (application_id, token, status, expires_at, created_by)
       VALUES (?, ?, 'ACTIVE', DATE_ADD(NOW(), INTERVAL 7 DAY), ?)
-    `, [applicationId, token, userId]);
+    `, [applicationId, token, userId || null]);
         for (const documentName of documents) {
             await connection.query('INSERT INTO fcu_requested_documents (request_id, document_name) VALUES (?, ?)', [result.insertId, documentName]);
         }
@@ -116,3 +116,8 @@ const saveRequestedDocumentUpload = async (token, documentId, fileName, filePath
     return true;
 };
 exports.saveRequestedDocumentUpload = saveRequestedDocumentUpload;
+const closeDocumentRequestByApplication = async (applicationId) => {
+    await (0, dbQuery_1.dbQuery)("UPDATE fcu_document_requests SET status='CLOSED' WHERE application_id=? AND status='ACTIVE'", [applicationId]);
+    return true;
+};
+exports.closeDocumentRequestByApplication = closeDocumentRequestByApplication;

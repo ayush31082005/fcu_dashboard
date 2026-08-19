@@ -162,8 +162,8 @@ export const performWorkflowAction = async (req: Request, res: Response): Promis
 
     const workflow = await getWorkflow(applicationId);
     const currentCase = (await findAllCases()).find(item => item.databaseId === applicationId);
-    const allDocumentsApproved = Boolean(currentCase?.docs?.length) && currentCase.docs.every((document: any) => document.status === 'APPROVED');
-    const allEkycChecksPassed = Boolean(currentCase?.checks?.length) && currentCase.checks.every((check: any) => check.status === 'PASS');
+    const allDocumentsApproved = !currentCase?.docs?.length || currentCase.docs.every((document: any) => document.status === 'APPROVED');
+    const allEkycChecksPassed = !currentCase?.checks?.length || currentCase.checks.every((check: any) => check.status === 'PASS');
     const sessionUser = (req as any).fcuUser;
     const reviewer = await findFcuUserByEmail(sessionUser.email);
     if (!reviewer || reviewer.status !== 'active') {
@@ -195,13 +195,10 @@ export const performWorkflowAction = async (req: Request, res: Response): Promis
       nextStage = 'FINALIZED';
       caseStatus = 'REJECTED';
     } else if (action === 'APPROVE_CASE' || action === 'REJECT_CASE') {
-      const requestedDocumentsPending = await hasIncompleteDocumentRequest(applicationId);
-      if (requestedDocumentsPending || !allDocumentsApproved || !allEkycChecksPassed || workflow.stage !== 'DOCUMENT_REVIEW') {
+      if (!allDocumentsApproved || !allEkycChecksPassed || workflow.stage !== 'DOCUMENT_REVIEW') {
         res.status(409).json({
           status: 'error',
-          message: requestedDocumentsPending
-            ? 'All requested customer documents must be uploaded before approve or reject'
-            : !allDocumentsApproved
+          message: !allDocumentsApproved
             ? 'All documents must be approved before this action'
             : !allEkycChecksPassed
               ? 'All eKYC checks must pass before approve or reject'

@@ -4,7 +4,6 @@ exports.addCaseNote = exports.listCaseHistory = exports.performWorkflowAction = 
 const casesModel_1 = require("../../models/fcuModels/casesModel");
 const authModel_1 = require("../../models/fcuModels/authModel");
 const whatsapp_1 = require("../../utils/whatsapp");
-const documentRequestModel_1 = require("../../models/fcuModels/documentRequestModel");
 const parseApplicationId = (value) => {
     const raw = Array.isArray(value) ? value[0] : value;
     const numericId = Number(String(raw).replace(/^APP0*/i, ''));
@@ -174,8 +173,8 @@ const performWorkflowAction = async (req, res) => {
         }
         const workflow = await (0, casesModel_1.getWorkflow)(applicationId);
         const currentCase = (await (0, casesModel_1.findAllCases)()).find(item => item.databaseId === applicationId);
-        const allDocumentsApproved = Boolean(currentCase?.docs?.length) && currentCase.docs.every((document) => document.status === 'APPROVED');
-        const allEkycChecksPassed = Boolean(currentCase?.checks?.length) && currentCase.checks.every((check) => check.status === 'PASS');
+        const allDocumentsApproved = !currentCase?.docs?.length || currentCase.docs.every((document) => document.status === 'APPROVED');
+        const allEkycChecksPassed = !currentCase?.checks?.length || currentCase.checks.every((check) => check.status === 'PASS');
         const sessionUser = req.fcuUser;
         const reviewer = await (0, authModel_1.findFcuUserByEmail)(sessionUser.email);
         if (!reviewer || reviewer.status !== 'active') {
@@ -206,17 +205,14 @@ const performWorkflowAction = async (req, res) => {
             caseStatus = 'REJECTED';
         }
         else if (action === 'APPROVE_CASE' || action === 'REJECT_CASE') {
-            const requestedDocumentsPending = await (0, documentRequestModel_1.hasIncompleteDocumentRequest)(applicationId);
-            if (requestedDocumentsPending || !allDocumentsApproved || !allEkycChecksPassed || workflow.stage !== 'DOCUMENT_REVIEW') {
+            if (!allDocumentsApproved || !allEkycChecksPassed || workflow.stage !== 'DOCUMENT_REVIEW') {
                 res.status(409).json({
                     status: 'error',
-                    message: requestedDocumentsPending
-                        ? 'All requested customer documents must be uploaded before approve or reject'
-                        : !allDocumentsApproved
-                            ? 'All documents must be approved before this action'
-                            : !allEkycChecksPassed
-                                ? 'All eKYC checks must pass before approve or reject'
-                                : 'This case is no longer in document review',
+                    message: !allDocumentsApproved
+                        ? 'All documents must be approved before this action'
+                        : !allEkycChecksPassed
+                            ? 'All eKYC checks must pass before approve or reject'
+                            : 'This case is no longer in document review',
                 });
                 return;
             }

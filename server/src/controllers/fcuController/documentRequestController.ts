@@ -4,11 +4,30 @@ import fs from 'fs';
 import path from 'path';
 import { uploadToCloudinary } from '../../config/cloudinary';
 import { findFcuUserByEmail } from '../../models/fcuModels/authModel';
-import { createDocumentRequestRecord, findDocumentRequestByApplication, findDocumentRequestByToken, findDocumentRequestRecipient, saveRequestedDocumentUpload } from '../../models/fcuModels/documentRequestModel';
+import { closeDocumentRequestByApplication, createDocumentRequestRecord, findDocumentRequestByApplication, findDocumentRequestByToken, findDocumentRequestRecipient, saveRequestedDocumentUpload } from '../../models/fcuModels/documentRequestModel';
 import { sendWhatsAppDocumentRequest } from '../../utils/whatsapp';
 import { addCaseHistory } from '../../models/fcuModels/casesModel';
 
-const allowedDocuments = new Set(['Aadhaar Card', 'PAN Card', 'Passport', 'Voter ID', 'Driving License', 'Utility Bill (Electricity/Water/Gas)', 'Bank Statement']);
+const allowedDocuments = new Set([
+  'Aadhaar Card',
+  'PAN Card',
+  'Passport',
+  'Voter ID',
+  'Driving License',
+  'Utility Bill (Electricity/Water/Gas)',
+  'Bank Statement',
+  'Rental Agreement',
+  'Current month salary slip',
+  'Previous month salary slip',
+  'Old salary slip',
+  'Salary Certificate',
+  'Latest Form 16',
+  'Noc',
+  'Company ID Card',
+  'Employment/Joining Letter',
+  'Last 6 Months Bank Statement',
+  'Cancelled Cheque',
+]);
 const parseId = (value: string | string[]) => {
   const raw = Array.isArray(value) ? value[0] : value;
   const id = Number(String(raw).replace(/^APP0*/i, ''));
@@ -39,18 +58,19 @@ export const createDocumentRequest = async (req: Request, res: Response): Promis
       res.status(400).json({ status: 'error', message: 'Select at least one valid document' }); return;
     }
     const sessionUser = (req as any).fcuUser;
-    const user = await findFcuUserByEmail(sessionUser.email);
-    if (!user) { res.status(401).json({ status: 'error', message: 'FCU user not found' }); return; }
+    const user = sessionUser?.email ? await findFcuUserByEmail(sessionUser.email) : null;
+    const userId = user ? user.id : (Number.isInteger(Number(sessionUser?.id)) ? Number(sessionUser.id) : null);
     const token = crypto.randomBytes(24).toString('hex');
-    await createDocumentRequestRecord(applicationId, token, user.id, documents);
+    await createDocumentRequestRecord(applicationId, token, userId, documents);
+    await addCaseHistory(applicationId, 'DOCUMENT_REQUEST', 'Document Upload Link Created', `Requested documents: ${documents.join(', ')}`, userId || undefined);
     const data = normalize(await findDocumentRequestByApplication(applicationId));
     res.status(201).json({ status: 'success', data: { ...data, shareUrl: `${req.protocol}://${req.get('host')}/customer-upload/${token}` } });
   } catch (error: any) {
     console.error('FCU document request create error:', error);
     if (error?.code === 'APPLICATION_NOT_FOUND' || error?.code === 'ER_NO_REFERENCED_ROW_2') {
-      res.status(404).json({ status: 'error', message: 'This application was removed from the database. Refresh Applications and open an existing case.' }); return;
+      res.status(404).json({ status: 'error', message: 'Application or user record not found in database.' }); return;
     }
-    res.status(500).json({ status: 'error', message: 'Unable to create document request' });
+    res.status(500).json({ status: 'error', message: error?.message || 'Unable to create document request' });
   }
 };
 
@@ -67,11 +87,25 @@ export const shareDocumentRequest = async (req: Request, res: Response): Promise
     if (!recipient) { res.status(404).json({ status:'error', message:'Applicant mobile number not found' }); return; }
     const formattedApplicationId = `APP${String(applicationId).padStart(7, '0')}`;
     const provider = await sendWhatsAppDocumentRequest(recipient.mobile, formattedApplicationId, recipient.name, uploadLink);
-    await addCaseHistory(applicationId, 'WHATSAPP', 'Document upload link submitted to WhatsApp', `Upload link submitted to ${recipient.mobile}. Provider LogID: ${provider?.LogID || 'N/A'}`, Number((req as any).fcuUser.id));
+    await addCaseHistory(applicationId, 'WHATSAPP', 'Document upload link submitted to WhatsApp', `Upload link submitted to ${recipient.mobile}. Provider LogID: ${provider?.LogID || 'N/A'}`, Number((req as any).fcuUser?.id) || undefined);
     res.json({ status:'success', message:'Upload link submitted to customer WhatsApp', data:{ mobile:`******${String(recipient.mobile).slice(-4)}`, logId:provider?.LogID || null } });
   } catch (error: any) {
     console.error('FCU document request WhatsApp error:', error?.response?.data || error);
     res.status(502).json({ status:'error', message:error?.message || 'Unable to send upload link on WhatsApp' });
+  }
+};
+
+export const disableDocumentRequest = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const applicationId = parseId(req.params.caseId);
+    if (!applicationId) { res.status(400).json({ status: 'error', message: 'Invalid application' }); return; }
+    await closeDocumentRequestByApplication(applicationId);
+    await addCaseHistory(applicationId, 'DOCUMENT_REQUEST', 'Document Upload Link Disabled', 'The active document request link was closed and deactivated.', Number((req as any).fcuUser?.id) || undefined);
+    const data = normalize(await findDocumentRequestByApplication(applicationId));
+    res.json({ status: 'success', message: 'Upload link disabled successfully', data });
+  } catch (error) {
+    console.error('FCU disable link error:', error);
+    res.status(500).json({ status: 'error', message: 'Unable to disable upload link' });
   }
 };
 
@@ -98,8 +132,14 @@ export const uploadCustomerDocument = async (req: Request, res: Response): Promi
     const buffer = Buffer.from(match[2], 'base64');
     if (!buffer.length || buffer.length > 5 * 1024 * 1024) { res.status(413).json({ status: 'error', message: 'File must be smaller than 5 MB' }); return; }
     const request = normalize(await findDocumentRequestByToken(token));
-    if (!request || requestStatus(request) !== 'ACTIVE' || requestIsExpired(request)) {
-      res.status(410).json({ status: 'error', message: 'Document request is invalid or expired' }); return;
+    if (!request) {
+      res.status(404).json({ status: 'error', message: 'Document request not found' }); return;
+    }
+    if (requestStatus(request) === 'CLOSED') {
+      res.status(410).json({ status: 'error', message: 'This document request link was disabled. Please create a new share link to upload.' }); return;
+    }
+    if (requestIsExpired(request)) {
+      res.status(410).json({ status: 'error', message: 'This document request link has expired. Please create a new share link to upload.' }); return;
     }
     const savedName = `${token.slice(0, 10)}_${documentId}_${Date.now()}_${originalName}`;
     
@@ -111,6 +151,8 @@ export const uploadCustomerDocument = async (req: Request, res: Response): Promi
     
     const saved = await saveRequestedDocumentUpload(token, documentId, originalName, cloudinaryUrl);
     if (!saved) { res.status(404).json({ status: 'error', message: 'Requested document not found' }); return; }
+    const docItem = request.documents?.find((d: any) => Number(d.id) === documentId);
+    await addCaseHistory(request.application_id, 'DOCUMENT_UPLOAD', 'Customer Document Uploaded', `Document '${docItem?.documentName || originalName}' was uploaded.`, Number((req as any).fcuUser?.id) || undefined);
     res.json({ status: 'success', message: 'Document uploaded successfully', data: normalize(await findDocumentRequestByToken(token)) });
   } catch (error) {
     console.error('FCU customer upload error:', error);

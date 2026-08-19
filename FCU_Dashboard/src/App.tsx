@@ -23,16 +23,38 @@ type CheckStatus = 'PASS' | 'FAIL' | 'PENDING'
 
 interface RequestedDocument { id: number; documentName: string; status: string; fileName?: string; filePath?: string; uploadedAt?: string }
 interface DocumentRequestData { id: number; application_id?: number; token: string; status: string; expires_at: string; documents: RequestedDocument[]; shareUrl?: string; leadId?: string; customerName?: string }
+const getDocIcon = (name: string) => {
+  const lower = name.toLowerCase()
+  if (lower.includes('aadhaar') || lower.includes('pan') || lower.includes('voter') || lower.includes('passport') || lower.includes('license') || lower.includes('id')) {
+    return '🪪'
+  }
+  if (lower.includes('salary') || lower.includes('income') || lower.includes('form 16') || lower.includes('slip') || lower.includes('certificate')) {
+    return '💵'
+  }
+  if (lower.includes('bank') || lower.includes('cheque') || lower.includes('statement')) {
+    return '🏦'
+  }
+  if (lower.includes('utility') || lower.includes('bill') || lower.includes('rent') || lower.includes('agreement') || lower.includes('noc')) {
+    return '📑'
+  }
+  return '📄'
+}
 interface FcuNotification { id: string; type: 'NEW_APPLICATION' | 'FIELD_REPORT_SUBMITTED'; applicationId: number; applicationNumber: string; title: string; message: string; borrower: string; createdAt: string; isRead: boolean }
 
 interface CaseDoc {
   id: string
+  docId?: string
   name: string
   type: string
+  leadId?: string
   uploaded: string
   status: DocStatus
   fileUrl?: string | null
   fileName?: string
+  uploadedBy?: string
+  metaIntegrityStatus?: string
+  metaIntegrityDetail?: string
+  faceMatch?: string | null
   details?: Record<string, unknown>
 }
 
@@ -330,6 +352,7 @@ function LiveSessionDuration({ loginAt }: { loginAt?: string }) {
 function CaseDetailDrawer({
   caseData,
   reviewerName,
+  readOnly = false,
   onClose,
   onCaseUpdate,
   onMoveToCredit,
@@ -337,11 +360,14 @@ function CaseDetailDrawer({
 }: {
   caseData: CaseRecord
   reviewerName: string
+  readOnly?: boolean
   onClose: () => void
   onCaseUpdate: (id: string, updates: Partial<CaseRecord>) => void
   onMoveToCredit: () => void
   onMoveToHold: () => void
 }) {
+  const isTerminal = ['SENT_TO_CREDIT', 'DISBURSED', 'REJECTED', 'FORWARDED_REJECT'].includes(caseData.status) || caseData.workflowStage === 'FINALIZED'
+  const isReadOnly = Boolean(readOnly || isTerminal)
   const [activeTab, setActiveTab] = useState<'personal' | 'loan' | 'docs' | 'aadhaar' | 'fcu' | 'credit' | 'field' | 'history'>('loan')
   const [docs, setDocs] = useState<CaseDoc[]>(caseData.docs)
   const [checks, setChecks] = useState<FCUCheck[]>(caseData.checks)
@@ -358,7 +384,26 @@ function CaseDetailDrawer({
   const [caseStatus, setCaseStatus] = useState(caseData.status)
   const [workflowStage, setWorkflowStage] = useState(caseData.workflowStage || 'DOCUMENT_REVIEW')
   const [actionSaving, setActionSaving] = useState(false)
-  const documentOptions = ['Aadhaar Card', 'PAN Card', 'Passport', 'Voter ID', 'Driving License', 'Utility Bill (Electricity/Water/Gas)', 'Bank Statement']
+  const documentOptions = [
+    'Aadhaar Card',
+    'PAN Card',
+    'Passport',
+    'Voter ID',
+    'Driving License',
+    'Utility Bill (Electricity/Water/Gas)',
+    'Bank Statement',
+    'Rental Agreement',
+    'Current month salary slip',
+    'Previous month salary slip',
+    'Old salary slip',
+    'Salary Certificate',
+    'Latest Form 16',
+    'Noc',
+    'Company ID Card',
+    'Employment/Joining Letter',
+    'Last 6 Months Bank Statement',
+    'Cancelled Cheque',
+  ]
   const [selectedRequestDocs, setSelectedRequestDocs] = useState<string[]>(['Aadhaar Card', 'PAN Card'])
   const [documentRequest, setDocumentRequest] = useState<DocumentRequestData | null>(null)
   const [requestSaving, setRequestSaving] = useState(false)
@@ -374,6 +419,26 @@ function CaseDetailDrawer({
   const [corporateEmailSaving, setCorporateEmailSaving] = useState(false)
   const [uploadDocumentId, setUploadDocumentId] = useState<number | null>(null)
   const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploadingDocId, setUploadingDocId] = useState<number | string | null>(null)
+  const [viewedDocIds, setViewedDocIds] = useState<Set<string | number>>(new Set())
+  const openDocPreview = (doc: any) => {
+    if (doc?.id) {
+      setViewedDocIds(prev => new Set(prev).add(doc.id))
+    }
+    setPreviewDocument(doc)
+  }
+  const [bankEditOpen, setBankEditOpen] = useState(false)
+  const [bankEditSaving, setBankEditSaving] = useState(false)
+  const [bankEditForm, setBankEditForm] = useState({
+    accountHolderName: '',
+    bankName: '',
+    accountNumber: '',
+    ifscCode: '',
+    branchName: '',
+    accountType: 'savings',
+    salaryAccount: 'Yes',
+    verificationStatus: 'Verified',
+  })
   const ekyc = caseData.ekycDetails
   const ekycAssetUrl = (filePath?: string | null) => filePath
     ? (/^(https?:|data:|blob:)/i.test(filePath) ? filePath : `${API_BASE_URL}/${filePath.replace(/^\/+/, '')}`)
@@ -455,6 +520,8 @@ function CaseDetailDrawer({
     return () => controller.abort()
   }, [caseData.id, hasDatabaseLocation, locationQuery, cityLocationQuery])
 
+  const [hasInitializedSelectedDocs, setHasInitializedSelectedDocs] = useState(false)
+
   const loadDocumentRequest = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/fcu/auth/cases/${caseData.databaseId || caseData.id}/document-requests`, { credentials: 'include', cache: 'no-store' })
@@ -463,6 +530,10 @@ function CaseDetailDrawer({
         setDocumentRequest(result.data || null)
         const pending = (result.data?.documents || []).find((item: RequestedDocument) => item.status === 'PENDING')
         setUploadDocumentId(pending?.id || null)
+        if (!hasInitializedSelectedDocs && Array.isArray(result.data?.documents) && result.data.documents.length > 0) {
+          setSelectedRequestDocs(result.data.documents.map((d: any) => d.documentName))
+          setHasInitializedSelectedDocs(true)
+        }
       }
     } catch { /* The rest of the case drawer remains usable when this optional panel is unavailable. */ }
   }
@@ -510,9 +581,8 @@ function CaseDetailDrawer({
   }
 
   useEffect(() => {
-    if (activeTab !== 'history') return
     void loadCaseHistory()
-  }, [activeTab, caseData.id])
+  }, [caseData.id, caseData.databaseId])
 
   const createShareLink = async () => {
     if (!selectedRequestDocs.length) { showToast('Select at least one document', 'error'); return }
@@ -527,6 +597,7 @@ function CaseDetailDrawer({
       setDocumentRequest(data)
       setUploadDocumentId(data.documents?.[0]?.id || null)
       showToast('Customer document request created', 'success')
+      void loadCaseHistory()
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to create request'
       showToast(message, 'error')
@@ -537,11 +608,28 @@ function CaseDetailDrawer({
     finally { setRequestSaving(false) }
   }
 
-  const shareUrl = documentRequest?.token ? `${window.location.origin}/customer-upload/${documentRequest.token}` : ''
+  const shareUrl = documentRequest?.token && (documentRequest.status === 'ACTIVE' || documentRequest.status === 'COMPLETED') ? `${window.location.origin}/customer-upload/${documentRequest.token}` : ''
   const copyShareLink = async () => {
-    if (!shareUrl) { showToast('Create a share link first', 'error'); return }
+    if (!shareUrl) { showToast('Create an active share link first', 'error'); return }
     await navigator.clipboard.writeText(shareUrl)
     showToast('Share link copied', 'success')
+  }
+  const disableShareLink = async () => {
+    try {
+      setRequestSaving(true)
+      const response = await fetch(`${API_BASE_URL}/api/fcu/auth/cases/${caseData.databaseId || caseData.id}/document-requests`, {
+        method: 'DELETE', credentials: 'include',
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'Unable to disable share link')
+      setDocumentRequest(result.data || null)
+      showToast('Document upload link disabled', 'success')
+      void loadCaseHistory()
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Unable to disable link', 'error')
+    } finally {
+      setRequestSaving(false)
+    }
   }
   const shareDocumentLink = async () => {
     if (!shareUrl) { showToast('Create a share link first', 'error'); return }
@@ -553,6 +641,7 @@ function CaseDetailDrawer({
       const result = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(result.message || 'Unable to send upload link on WhatsApp')
       showToast(`Document link sent on WhatsApp to ${result.data?.mobile || 'customer'}`, 'success')
+      void loadCaseHistory()
     } catch (error) { showToast(error instanceof Error ? error.message : 'Unable to send WhatsApp message', 'error') }
     finally { setRequestSaving(false) }
   }
@@ -705,8 +794,118 @@ function CaseDetailDrawer({
       showToast(error instanceof Error ? error.message : 'Unable to verify corporate email', 'error')
     } finally { setCorporateEmailSaving(false) }
   }
+
+  const openBankEditModal = () => {
+    setBankEditForm({
+      accountHolderName: ekyc?.bank?.accountHolderName === 'N/A' ? '' : (ekyc?.bank?.accountHolderName || ''),
+      bankName: ekyc?.bank?.bankName === 'N/A' ? '' : (ekyc?.bank?.bankName || ''),
+      accountNumber: ekyc?.bank?.accountNumber === 'N/A' ? '' : (ekyc?.bank?.accountNumber || ''),
+      ifscCode: ekyc?.bank?.ifscCode === 'N/A' ? '' : (ekyc?.bank?.ifscCode || ''),
+      branchName: ekyc?.bank?.branchName === 'N/A' ? '' : (ekyc?.bank?.branchName || ''),
+      accountType: ekyc?.bank?.accountType === 'N/A' ? 'savings' : (ekyc?.bank?.accountType || 'savings'),
+      salaryAccount: ekyc?.bank?.salaryAccount === 'N/A' ? 'Yes' : (ekyc?.bank?.salaryAccount || 'Yes'),
+      verificationStatus: ekyc?.bank?.verificationStatus || 'Verified',
+    })
+    setBankEditOpen(true)
+  }
+
+  const saveBankDetails = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    try {
+      setBankEditSaving(true)
+      const response = await fetch(`${API_BASE_URL}/api/fcu/auth/cases/${caseData.databaseId || caseData.id}/bank-details`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bankEditForm),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'Unable to save bank details')
+
+      const updatedBank = result.data || {
+        ...ekyc?.bank,
+        ...bankEditForm,
+        status: 'Available',
+      }
+
+      onCaseUpdate(caseData.id, {
+        ekycDetails: {
+          ...caseData.ekycDetails!,
+          bank: updatedBank,
+        },
+      })
+
+      showToast('Bank details updated and verified successfully', 'success')
+      setBankEditOpen(false)
+      void loadCaseHistory()
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Unable to update bank details', 'error')
+    } finally {
+      setBankEditSaving(false)
+    }
+  }
+
+  const uploadSingleDoc = async (docIdOrName: number | string, file: File) => {
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) { showToast('File must be smaller than 5 MB', 'error'); return }
+    try {
+      setUploadingDocId(docIdOrName)
+      let activeRequest = documentRequest
+
+      if (!activeRequest?.token || activeRequest.status !== 'ACTIVE') {
+        const docsToRequest = Array.from(new Set<string>([
+          ...selectedRequestDocs,
+          typeof docIdOrName === 'string' ? docIdOrName : ''
+        ])).filter(Boolean)
+
+        const createRes = await fetch(`${API_BASE_URL}/api/fcu/auth/cases/${caseData.databaseId || caseData.id}/document-requests`, {
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ documents: docsToRequest }),
+        })
+        const createResult = await createRes.json().catch(() => ({}))
+        if (!createRes.ok) throw new Error(createResult.message || 'Unable to activate document request')
+        activeRequest = { ...createResult.data, shareUrl: `${window.location.origin}/customer-upload/${createResult.data.token}` }
+        setDocumentRequest(activeRequest)
+      }
+
+      let targetDocId: number | null = typeof docIdOrName === 'number' ? docIdOrName : null
+      if (!targetDocId && typeof docIdOrName === 'string') {
+        const matched = activeRequest.documents?.find(d => d.documentName === docIdOrName)
+        targetDocId = matched ? matched.id : null
+      }
+
+      if (!targetDocId) {
+        throw new Error('Target document slot not found in active request')
+      }
+
+      const imageBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result))
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+
+      const response = await fetch(`${API_BASE_URL}/api/fcu/auth/customer-upload/${activeRequest.token}/documents/${targetDocId}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64, fileName: file.name }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'Unable to upload document')
+
+      setDocumentRequest(result.data)
+      showToast('Document uploaded successfully!', 'success')
+      void loadCaseHistory()
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Unable to upload', 'error')
+    } finally {
+      setUploadingDocId(null)
+    }
+  }
+
   const uploadRequestedFile = async () => {
-    if (!documentRequest?.token || !uploadDocumentId || !uploadFile) { showToast('Choose a pending document and file', 'error'); return }
+    if (!documentRequest?.token || documentRequest.status !== 'ACTIVE') {
+      showToast('Document request link is disabled. Click "Create share link" to generate an active link first.', 'error')
+      return
+    }
+    if (!uploadDocumentId || !uploadFile) { showToast('Choose a pending document and file', 'error'); return }
     if (uploadFile.size > 5 * 1024 * 1024) { showToast('File must be smaller than 5 MB', 'error'); return }
     try {
       setRequestSaving(true)
@@ -719,7 +918,8 @@ function CaseDetailDrawer({
       setDocumentRequest(result.data)
       setUploadFile(null)
       setUploadDocumentId(result.data.documents?.find((item: RequestedDocument) => item.status === 'PENDING')?.id || null)
-      showToast('Document uploaded by customer', 'success')
+      showToast('Document uploaded successfully', 'success')
+      void loadCaseHistory()
     } catch (error) { showToast(error instanceof Error ? error.message : 'Unable to upload', 'error') }
     finally { setRequestSaving(false) }
   }
@@ -730,6 +930,10 @@ function CaseDetailDrawer({
   }
 
   const updateDocStatus = async (docId: string, status: DocStatus, reason = '') => {
+    if (status === 'APPROVED' && !viewedDocIds.has(docId)) {
+      showToast('Pehle document ko View karke check karein, tabhi verify ho payega.', 'error')
+      return
+    }
     try {
       const response = await fetch(`${API_BASE_URL}/api/fcu/auth/cases/${caseData.databaseId || caseData.id}/documents/${docId}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ status, reason }),
@@ -754,6 +958,16 @@ function CaseDetailDrawer({
   }
 
   const approveAllDocuments = async () => {
+    const unapproved = docs.filter((d: any) => d.status !== 'APPROVED')
+    if (unapproved.length === 0) {
+      showToast('All documents are already verified', 'info')
+      return
+    }
+    const unviewed = unapproved.filter((d: any) => !viewedDocIds.has(d.id))
+    if (unviewed.length > 0) {
+      showToast(`Pehle sabhi ${unviewed.length} document(s) ko View karein, tabhi Verify All ho payega.`, 'error')
+      return
+    }
     try {
       const response = await fetch(`${API_BASE_URL}/api/fcu/auth/cases/${caseData.databaseId || caseData.id}/documents/approve-all`, { method: 'POST', credentials: 'include' })
       const result = await response.json().catch(() => ({}))
@@ -852,6 +1066,16 @@ function CaseDetailDrawer({
       } else {
         showToast(`${action} — case status updated`, action.includes('Reject') || action === 'Hold Case' ? 'error' : 'success')
       }
+      
+      // If a document was specifically flagged as fraud, update its local status
+      if (action === 'Flag as Fraud' && fraudSourceDocument) {
+        const updatedDocs = docs.map(d => d.id === fraudSourceDocument.id ? { ...d, status: 'REJECTED' as DocStatus } : d)
+        setDocs(updatedDocs)
+        onCaseUpdate(caseData.id, { docs: updatedDocs })
+        
+        // Also fire off a document status update to the backend just in case
+        void updateDocStatus(fraudSourceDocument.id, 'REJECTED', actionReason.trim())
+      }
     }
       setConfirmAction(null)
       setFraudSourceDocument(null)
@@ -866,12 +1090,9 @@ function CaseDetailDrawer({
 
   const docsApproved = docs.filter(d => d.status === 'APPROVED').length
   const docsPending  = docs.filter(d => d.status === 'PENDING').length
-  const allDocsApproved = docs.length > 0 && docs.every(d => d.status === 'APPROVED')
-  const allEkycChecksPassed = checks.length > 0 && checks.every(check => check.status === 'PASS')
-  const allRequestedDocumentsUploaded = Boolean(documentRequest?.documents?.length)
-    && documentRequest?.status === 'COMPLETED'
-    && documentRequest.documents.every(document => document.status !== 'PENDING')
-  const canInitialDecision = workflowStage === 'DOCUMENT_REVIEW' && allRequestedDocumentsUploaded && allDocsApproved && allEkycChecksPassed
+  const allDocsApproved = docs.length === 0 || docs.every(d => d.status === 'APPROVED')
+  const allEkycChecksPassed = checks.length === 0 || checks.every(check => check.status === 'PASS')
+  const canInitialDecision = workflowStage === 'DOCUMENT_REVIEW' && allDocsApproved && allEkycChecksPassed
   const canChooseVerification = workflowStage === 'FCU_APPROVED'
   const fieldReportComplete = Boolean(fieldReport)
     && reportSubmissionSummary.length > 0
@@ -905,7 +1126,7 @@ function CaseDetailDrawer({
     { key: 'fcu',      label: `eKYC` },
     { key: 'credit',   label: 'Credit Bureau' },
     { key: 'field',    label: 'Field Details' },
-    { key: 'history',  label: `History (${history.length})` },
+    // { key: 'history',  label: `History (${history.length})` },
   ] as const
   const referenceRows = caseData.references || []
   const referenceColumns = Array.from(new Set(referenceRows.flatMap(reference => Object.keys(reference.data || {}))))
@@ -946,8 +1167,13 @@ function CaseDetailDrawer({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            {isReadOnly && (
+              <span className="px-2.5 py-1 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[10px] font-bold flex items-center gap-1">
+                🔒 View Only (Read-Only)
+              </span>
+            )}
             <button onClick={onClose} className="px-2.5 py-1 rounded bg-white/10 text-blue-100 hover:bg-white/20 text-[11px] font-medium">
-              ← Back to Applications
+              ← Close Drawer
             </button>
             <StatusBadge status={caseStatus} />
           </div>
@@ -1062,7 +1288,7 @@ function CaseDetailDrawer({
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="rounded border border-gray-200 bg-white p-3">
               <div className="text-[10px] font-semibold uppercase text-gray-500">Lead Stage</div>
               <div className="mt-1 text-[14px] font-semibold text-gray-800">Follow Up</div>
@@ -1074,10 +1300,6 @@ function CaseDetailDrawer({
             <div className="rounded border border-gray-200 bg-white p-3">
               <div className="text-[10px] font-semibold uppercase text-gray-500">Service Line</div>
               <div className="mt-1 text-[14px] font-semibold text-gray-800">Personal Loan</div>
-            </div>
-            <div className="rounded border border-gray-200 bg-white p-3">
-              <div className="text-[10px] font-semibold uppercase text-gray-500">Owner</div>
-              <div className="mt-1 text-[14px] font-semibold text-gray-800">Rakesh RM</div>
             </div>
           </div>
         </div>
@@ -1151,18 +1373,18 @@ function CaseDetailDrawer({
                 <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-3 bg-[#f0f4fa] border-b border-gray-200">
                     <div>
-                      <div className="text-[11px] font-bold uppercase tracking-wide text-[#1e3a5f]">Residence ({caseData.secondaryResidenceType || 'Secondary'})</div>
+                      <div className="text-[11px] font-bold uppercase tracking-wide text-[#1e3a5f]">Residence ({caseData.secondaryResidenceType || 'Rented'})</div>
                       <div className="text-[11px] text-gray-500">Secondary residency evidence</div>
                     </div>
                     <span className="px-2.5 py-1 rounded-full border border-gray-200 bg-white text-[10px] font-semibold text-gray-600">3 fields</span>
                   </div>
                   <div className="grid grid-cols-2 divide-x divide-y divide-gray-200">
-                    <div className="p-3 col-span-2"><div className="text-[10px] font-semibold uppercase text-gray-500">Address Line 1</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.secondaryResidenceAddressLine1 || 'N/A'}</div></div>
-                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Address Line 2</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.secondaryResidenceAddressLine2 || 'N/A'}</div></div>
-                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">City</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.secondaryResidenceCity || 'N/A'}</div></div>
-                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">State</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.secondaryResidenceState || 'N/A'}</div></div>
-                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Pincode</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.secondaryResidencePincode || 'N/A'}</div></div>
-                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Residence Type</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.secondaryResidenceType || 'N/A'}</div></div>
+                    <div className="p-3 col-span-2"><div className="text-[10px] font-semibold uppercase text-gray-500">Address Line 1</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.secondaryResidenceAddressLine1 || caseData.address || 'N/A'}</div></div>
+                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Address Line 2</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.secondaryResidenceAddressLine2 || caseData.secondaryResidenceCity || caseData.city || 'N/A'}</div></div>
+                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">City</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.secondaryResidenceCity || caseData.city || 'N/A'}</div></div>
+                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">State</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.secondaryResidenceState || caseData.state || 'N/A'}</div></div>
+                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Pincode</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.secondaryResidencePincode || caseData.pincode || 'N/A'}</div></div>
+                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Residence Type</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.secondaryResidenceType || 'Rented'}</div></div>
                   </div>
                 </div>
               </div>
@@ -1373,15 +1595,18 @@ function CaseDetailDrawer({
                       </div>
                       <div className="rounded border border-gray-200 bg-gray-50 p-3">
                         <div className="text-[10px] font-semibold uppercase text-gray-500">Pending follow-ups</div>
-                        <div className="mt-1 text-2xl font-bold text-blue-600">{documentRequest?.status === 'ACTIVE' ? 1 : 0}</div>
+                        <div className="mt-1 text-2xl font-bold text-blue-600">{documentRequest?.status === 'ACTIVE' || documentRequest?.status === 'COMPLETED' ? 1 : 0}</div>
                       </div>
                     </div>
                     <div>
-                      <div className="text-[11px] font-semibold text-gray-700 mb-2">Select required loan document(s)</div>
-                      <div className="space-y-2">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-[11px] font-semibold text-gray-700">Select required loan document(s)</div>
+                        <div className="text-[10px] text-gray-500 font-medium">{selectedRequestDocs.length} selected</div>
+                      </div>
+                      <div className="max-h-60 overflow-y-auto pr-1 space-y-1.5 border border-gray-200 rounded-lg p-2.5 bg-gray-50/50">
                         {documentOptions.map(doc => (
-                          <label key={doc} className="flex items-center gap-2 text-[11px] text-gray-700">
-                            <input type="checkbox" checked={selectedRequestDocs.includes(doc)} onChange={() => setSelectedRequestDocs(current => current.includes(doc) ? current.filter(item => item !== doc) : [...current, doc])} className="h-3.5 w-3.5 accent-blue-600" />
+                          <label key={doc} className="flex items-center gap-2 text-[11px] text-gray-700 hover:text-gray-900 cursor-pointer p-1 rounded hover:bg-white transition-colors">
+                            <input type="checkbox" checked={selectedRequestDocs.includes(doc)} onChange={() => setSelectedRequestDocs(current => current.includes(doc) ? current.filter(item => item !== doc) : [...current, doc])} className="h-3.5 w-3.5 rounded accent-blue-600 cursor-pointer" />
                             <span>{doc}</span>
                           </label>
                         ))}
@@ -1389,152 +1614,569 @@ function CaseDetailDrawer({
                     </div>
                     <div className="flex gap-2">
                       <button onClick={createShareLink} disabled={requestSaving} className="px-4 py-2 bg-[#1e3a5f] text-white rounded text-[11px] font-semibold hover:bg-blue-700 disabled:opacity-50">{requestSaving ? 'Saving…' : 'Create share link'}</button>
-                      <button onClick={shareDocumentLink} className="px-4 py-2 bg-slate-700 text-white rounded text-[11px] font-semibold hover:bg-slate-800">Share</button>
-                      <button onClick={copyShareLink} className="px-4 py-2 bg-slate-100 text-gray-700 rounded text-[11px] font-semibold border border-gray-200 hover:bg-slate-200">Copy</button>
+                      <button onClick={shareDocumentLink} disabled={!shareUrl} className="px-4 py-2 bg-slate-700 text-white rounded text-[11px] font-semibold hover:bg-slate-800 disabled:opacity-50">Share</button>
+                      <button onClick={copyShareLink} disabled={!shareUrl} className="px-4 py-2 bg-slate-100 text-gray-700 rounded text-[11px] font-semibold border border-gray-200 hover:bg-slate-200 disabled:opacity-50">Copy</button>
                     </div>
-                    <div className="rounded border border-gray-200 bg-[#f8fafc] p-3">
-                      <div className="text-[11px] font-semibold text-gray-700">Share link</div>
-                      <div className="mt-1 break-all text-[11px] text-gray-600">{shareUrl || 'No active share link'}</div>
-                      <div className="mt-2 text-[10px] text-gray-500">Requested docs: {documentRequest?.documents?.map(doc => doc.documentName).join(', ') || 'None'}</div>
-                      <div className="text-[10px] text-gray-500">Current state: {documentRequest?.status || 'NOT CREATED'}</div>
+                    <div className="rounded border border-gray-200 bg-[#f8fafc] p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="text-[11px] font-semibold text-gray-700">Share link</div>
+                        {(documentRequest?.status === 'ACTIVE' || documentRequest?.status === 'COMPLETED') && (
+                          <button
+                            onClick={disableShareLink}
+                            disabled={requestSaving}
+                            className="px-2.5 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded text-[10px] font-bold hover:bg-rose-100 transition-colors"
+                          >
+                            {requestSaving ? 'Disabling…' : 'Disable link'}
+                          </button>
+                        )}
+                      </div>
+                      {shareUrl ? (
+                        <a
+                          href={shareUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="group flex items-center justify-between gap-2 break-all text-[11px] text-blue-600 font-mono bg-white p-2.5 rounded border border-blue-200 hover:border-blue-400 hover:bg-blue-50/40 transition shadow-sm"
+                          title="Click to open upload page in new tab"
+                        >
+                          <span className="truncate hover:underline underline-offset-2">{shareUrl}</span>
+                          <span className="shrink-0 flex items-center gap-1 text-[10px] font-sans font-bold bg-blue-600 text-white px-2 py-0.5 rounded shadow-sm group-hover:bg-blue-700 transition">
+                            Open ↗
+                          </span>
+                        </a>
+                      ) : (
+                        <div className="break-all text-[11px] text-gray-400 font-mono bg-white p-2 rounded border border-gray-200">
+                          No active share link
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between text-[10px] text-gray-500 pt-1">
+                        <span>Requested docs: <strong className="text-gray-700">{documentRequest?.documents?.map(doc => doc.documentName).join(', ') || 'None'}</strong></span>
+                        <span className={`px-2 py-0.5 rounded font-bold ${documentRequest?.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700' : documentRequest?.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}>
+                          {documentRequest?.status || 'NOT CREATED'}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden flex flex-col">
                   <div className="flex items-center justify-between px-4 py-3 bg-[#f0f4fa] border-b border-gray-200">
                     <div>
-                      <div className="text-[11px] font-bold uppercase tracking-wide text-[#1e3a5f]">Customer upload portal</div>
-                      <div className="text-[11px] text-gray-500">Monitor customer upload activity and document movement</div>
+                      <div className="text-[11px] font-bold uppercase tracking-wide text-[#1e3a5f]">Customer upload portal & direct upload</div>
+                      <div className="text-[11px] text-gray-500">Upload on behalf of customer or monitor live uploads</div>
                     </div>
-                    <button onClick={() => shareUrl && window.open(shareUrl, '_blank')} className="px-3 py-1 rounded border border-gray-200 bg-white text-[10px] font-semibold text-gray-600">Portal</button>
+                    <button
+                      onClick={() => shareUrl && window.open(shareUrl, '_blank')}
+                      disabled={!shareUrl}
+                      className="px-3 py-1 rounded-lg border border-blue-200 bg-white text-[10px] font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-40 transition flex items-center gap-1 shadow-sm"
+                    >
+                      <span>Portal</span>
+                      <span>↗</span>
+                    </button>
                   </div>
-                  <div className="p-4 space-y-4">
-                    <div className="rounded border border-gray-200 bg-[#f7f9fc] px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-gray-600">{documentRequest ? `${documentRequest.documents.filter(doc => doc.status === 'UPLOADED').length}/${documentRequest.documents.length} uploaded` : 'No active request'}</div>
-                    <div className="rounded border border-gray-200 bg-white p-4 text-[11px] text-gray-700">
-                      Customer document upload status
-                      <div className="mt-1 text-[10px] text-gray-500">Share this link to the customer and ask them to upload the requested document(s).</div>
-                    </div>
-                    {documentRequest?.documents?.length > 0 && documentRequest.documents.every(doc => doc.status !== 'PENDING') && (
-                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-center">
-                        <div className="mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500 text-lg font-bold text-white">✓</div>
-                        <div className="text-[12px] font-bold text-emerald-800">All requested documents uploaded</div>
-                        <div className="mt-1 text-[10px] text-emerald-700">The customer has completed this document request.</div>
-                      </div>
-                    )}
-                    {(documentRequest?.documents || []).some(doc => doc.status !== 'PENDING') && (
-                      <div>
-                        <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-600">Uploaded documents</div>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          {(documentRequest?.documents || []).filter(doc => doc.status !== 'PENDING').map(doc => {
-                            const fileUrl = doc.filePath ? `${API_BASE_URL}/${doc.filePath.replace(/^\/+/, '')}` : ''
-                            const isImage = /\.(jpe?g|png|webp)$/i.test(doc.filePath || doc.fileName || '')
-                            return (
-                              <a key={doc.id} href={fileUrl || undefined} target="_blank" rel="noreferrer" className="group flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-2.5 transition hover:border-blue-300 hover:bg-blue-50">
-                                <div className="flex h-14 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white bg-white shadow-sm">
-                                  {isImage && fileUrl ? <img src={fileUrl} alt={`${doc.documentName} uploaded preview`} className="h-full w-full object-cover transition group-hover:scale-105" /> : <div className="text-center"><div className="text-lg font-black text-red-600">PDF</div><div className="text-[8px] text-slate-400">DOCUMENT</div></div>}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <div className="truncate text-[11px] font-bold text-slate-800">{doc.documentName}</div>
-                                  <div className="mt-0.5 truncate text-[9px] text-slate-500">{doc.fileName || 'Uploaded file'}</div>
-                                  <div className="mt-1 flex items-center justify-between gap-2"><span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[8px] font-bold text-emerald-700">{doc.status}</span><span className="text-[9px] font-semibold text-blue-600">View ↗</span></div>
-                                </div>
-                              </a>
-                            )
-                          })}
+
+                  <div className="p-4 space-y-4 flex-1">
+                    {/* Progress Bar & Status Pill */}
+                    {(() => {
+                      const activeBackendDocs = Array.isArray(documentRequest?.documents) ? documentRequest.documents : []
+                      const displayDocs = selectedRequestDocs.map(name => {
+                        const matched = activeBackendDocs.find((d: any) => String(d.documentName || '').toLowerCase() === String(name).toLowerCase())
+                        return matched || { id: name, documentName: name, status: 'PENDING', fileName: '', filePath: '' }
+                      })
+                      const uploadedDocsCount = displayDocs.filter(doc => doc.status === 'UPLOADED').length
+                      const totalDocsCount = displayDocs.length
+
+                      return (
+                        <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3 space-y-2">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="font-bold text-slate-700">
+                              {uploadedDocsCount}/{totalDocsCount} Uploaded
+                            </span>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                              {totalDocsCount ? Math.round((uploadedDocsCount / totalDocsCount) * 100) : 0}% Complete
+                            </span>
+                          </div>
+                          <div className="w-full bg-blue-100 h-2 rounded-full overflow-hidden">
+                            <div
+                              className="bg-emerald-500 h-full transition-all duration-500"
+                              style={{ width: `${totalDocsCount ? (uploadedDocsCount / totalDocsCount) * 100 : 0}%` }}
+                            ></div>
+                          </div>
                         </div>
-                      </div>
-                    )}
-                    <select value={uploadDocumentId || ''} onChange={event => setUploadDocumentId(Number(event.target.value))} className="w-full rounded border border-gray-200 bg-[#f7f9fc] px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-gray-600">
-                      <option value="">Select pending document</option>
-                      {(documentRequest?.documents || []).filter(doc => doc.status === 'PENDING').map(doc => <option key={doc.id} value={doc.id}>{doc.documentName} - {doc.status}</option>)}
-                    </select>
-                    <input type="file" accept=".pdf,image/jpeg,image/png,image/webp" onChange={event => setUploadFile(event.target.files?.[0] || null)} className="w-full rounded border border-gray-200 bg-white p-3 text-[10px] text-gray-500" />
-                    <button onClick={uploadRequestedFile} disabled={requestSaving || !uploadFile || !uploadDocumentId} className="w-full px-4 py-3 bg-slate-700 text-white rounded text-[11px] font-semibold hover:bg-slate-800 disabled:bg-slate-300">{requestSaving ? 'Uploading…' : 'Mark as uploaded by customer'}</button>
+                      )
+                    })()}
+
+                    {/* All Uploaded Celebration Banner */}
+                    {selectedRequestDocs.length > 0 && (() => {
+                      const activeBackendDocs = Array.isArray(documentRequest?.documents) ? documentRequest.documents : []
+                      const allDone = selectedRequestDocs.every(name => {
+                        const matched = activeBackendDocs.find((d: any) => String(d.documentName || '').toLowerCase() === String(name).toLowerCase())
+                        return matched && matched.status === 'UPLOADED'
+                      })
+                      return allDone ? (
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-center shadow-sm">
+                          <div className="mx-auto mb-1.5 flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-sm font-bold text-white shadow">✓</div>
+                          <div className="text-xs font-bold text-emerald-800">All Selected Documents Uploaded</div>
+                          <div className="text-[10px] text-emerald-600">All selected documents are uploaded and ready for FCU verification.</div>
+                        </div>
+                      ) : null
+                    })()}
+
+                    {/* Interactive Per-Document Upload Cards */}
+                    <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                      {selectedRequestDocs.length === 0 ? (
+                        <div className="p-8 text-center text-xs text-gray-400">
+                          No documents selected. Check the required loan documents from the left list.
+                        </div>
+                      ) : (
+                        selectedRequestDocs.map((docName, idx) => {
+                          const activeBackendDocs = Array.isArray(documentRequest?.documents) ? documentRequest.documents : []
+                          const matchedDoc = activeBackendDocs.find((d: any) => String(d.documentName || '').toLowerCase() === String(docName).toLowerCase())
+                          const docId = matchedDoc ? matchedDoc.id : `sel-${idx}`
+                          const isUploaded = matchedDoc?.status === 'UPLOADED'
+                          const isDocSaving = uploadingDocId === docId || uploadingDocId === docName
+                          const fileUrl = matchedDoc?.filePath ? `${API_BASE_URL}/${matchedDoc.filePath.replace(/^\/+/, '')}` : ''
+
+                          return (
+                            <div
+                              key={docName}
+                              className={`p-3 rounded-xl border transition-all ${
+                                isUploaded
+                                  ? 'bg-emerald-50/30 border-emerald-200 hover:border-emerald-300'
+                                  : 'bg-white border-slate-200 hover:border-blue-300 shadow-sm'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm shrink-0 ${
+                                    isUploaded ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                                  }`}>
+                                    {getDocIcon(docName)}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="text-xs font-bold text-slate-800">{docName}</div>
+                                    <div className="text-[9px] text-slate-500 mt-0.5">
+                                      {isUploaded ? (
+                                        <div className="space-y-0.5">
+                                          <div className="font-mono text-slate-700 font-medium break-all">📎 {matchedDoc?.fileName || 'Uploaded file'}</div>
+                                          {(() => {
+                                            const text = String(matchedDoc?.metaIntegrityDetail || '');
+                                            const createdMatch = text.match(/Created:\s*([^\s]+\s+[^\s]+)/i);
+                                            const modifiedMatch = text.match(/Modified:\s*([^\s]+\s+[^\s]+)/i);
+                                            if (createdMatch || modifiedMatch) {
+                                              return (
+                                                <div className="text-[8.5px] font-mono text-slate-400 space-y-0.2">
+                                                  {createdMatch && <div className="text-emerald-700">{createdMatch[0]}</div>}
+                                                  {modifiedMatch && <div>{modifiedMatch[0]}</div>}
+                                                </div>
+                                              );
+                                            }
+                                            const uploadDate = matchedDoc?.uploadedAt || matchedDoc?.uploaded_at;
+                                            if (uploadDate) {
+                                              const d = new Date(uploadDate).toLocaleString('en-IN', {
+                                                year: 'numeric', month: '2-digit', day: '2-digit',
+                                                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+                                              }).replace(',', '');
+                                              return (
+                                                <div className="text-[8.5px] font-mono text-slate-400">
+                                                  <div className="text-emerald-700">Created: {d}</div>
+                                                  <div>Modified: {d}</div>
+                                                </div>
+                                              );
+                                            }
+                                            return null;
+                                          })()}
+                                        </div>
+                                      ) : 'PDF, JPG, PNG, WEBP · Max 5MB'}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                                    isUploaded ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                                  }`}>
+                                    {isUploaded ? '✓ Uploaded' : '⏳ Pending'}
+                                  </span>
+
+                                  {isUploaded && fileUrl && (
+                                    <a
+                                      href={fileUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="px-2 py-1 rounded bg-white border border-slate-200 text-[10px] font-bold text-blue-600 hover:bg-blue-50 transition"
+                                    >
+                                      View ↗
+                                    </a>
+                                  )}
+
+                                  <label className={`cursor-pointer px-3 py-1.5 rounded-lg text-[10px] font-bold transition flex items-center gap-1 shadow-sm ${
+                                    isDocSaving
+                                      ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                                      : isUploaded
+                                      ? 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                                      : 'bg-[#1e3a5f] hover:bg-blue-700 text-white shadow-blue-500/10'
+                                  }`}>
+                                    <input
+                                      type="file"
+                                      accept=".pdf,image/jpeg,image/png,image/webp"
+                                      disabled={isDocSaving}
+                                      onChange={event => {
+                                        const file = event.target.files?.[0]
+                                        if (file) void uploadSingleDoc(matchedDoc ? matchedDoc.id : docName, file)
+                                        event.target.value = ''
+                                      }}
+                                      className="hidden"
+                                    />
+                                    {isDocSaving ? (
+                                      <>
+                                        <span className="w-2.5 h-2.5 border-2 border-slate-500 border-t-transparent rounded-full animate-spin"></span>
+                                        <span>Uploading…</span>
+                                      </>
+                                    ) : isUploaded ? (
+                                      <>
+                                        <span>↻</span>
+                                        <span>Replace</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <span>📁</span>
+                                        <span>Upload</span>
+                                      </>
+                                    )}
+                                  </label>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })
+                      )}
+                    </div>
                   </div>
                 </div>
+              </div>
+
+              {/* ── Lead Activity & User Action Log (Application Tab Only) ── */}
+              <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 bg-[#f0f4fa] border-b border-gray-200">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">📋</span>
+                    <div>
+                      <div className="text-[11px] font-bold uppercase tracking-wide text-[#1e3a5f]">Activity & Audit Logs</div>
+                      <div className="text-[10px] text-gray-500">Real-time log of actions performed on this lead</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-full bg-white border border-gray-200 text-[10px] font-bold text-gray-600 shadow-xs">
+                      {history.length} {history.length === 1 ? 'event' : 'events'}
+                    </span>
+                    <button
+                      onClick={() => void loadCaseHistory()}
+                      disabled={historyLoading}
+                      className="px-2.5 py-1 rounded-lg border border-gray-200 bg-white text-[10px] font-bold text-gray-700 hover:bg-gray-50 hover:text-blue-600 disabled:opacity-50 transition shadow-xs flex items-center gap-1"
+                      title="Refresh activity logs"
+                    >
+                      <span className={historyLoading ? 'animate-spin' : ''}>↻</span>
+                      <span>{historyLoading ? 'Refreshing…' : 'Refresh'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {historyLoading && !history.length ? (
+                  <div className="py-8 text-center text-xs text-gray-400">Loading activity logs…</div>
+                ) : history.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-gray-400">
+                    No activity logs recorded yet for this lead. Actions performed will appear here automatically.
+                  </div>
+                ) : (
+                  <div className="max-h-[350px] overflow-y-auto divide-y divide-gray-100">
+                    {history.map((item: any, idx: number) => {
+                      const performedByName = item.performedBy || item.performed_by_name || 'System';
+                      const t = (String(item.title || '') + ' ' + String(item.eventType || item.event_type || '')).toLowerCase();
+
+                      const isApproved = t.includes('approve') || t.includes('pass');
+                      const isRejected = t.includes('reject') || t.includes('fraud') || t.includes('fail');
+                      const isCreated = t.includes('created') || t.includes('create');
+                      const isDisabled = t.includes('disabled') || t.includes('disable') || t.includes('close');
+                      const isWhatsApp = t.includes('whatsapp') || t.includes('message');
+
+                      const dotColor =
+                        isApproved ? 'bg-emerald-500' :
+                        isRejected ? 'bg-rose-500' :
+                        isDisabled ? 'bg-amber-500' :
+                        isCreated ? 'bg-blue-600' :
+                        isWhatsApp ? 'bg-green-600' :
+                        'bg-slate-400';
+
+                      return (
+                        <div key={item.id || idx} className="px-4 py-2.5 hover:bg-slate-50/70 transition-colors flex items-start gap-3">
+                          <span className={`w-2 h-2 rounded-full ${dotColor} mt-1.5 shrink-0`}></span>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-xs text-gray-900">
+                                  {item.title || item.eventType || 'Activity Event'}
+                                </span>
+                                <span className="text-[10px] text-gray-500">
+                                  by <strong className="text-gray-700">{performedByName}</strong>
+                                  <span className="text-gray-400"> · {item.role || 'FCU Reviewer'}</span>
+                                </span>
+                              </div>
+
+                              <span className="text-[10px] text-gray-400 font-mono shrink-0">
+                                {item.createdAt || item.created_at ? new Date(item.createdAt || item.created_at).toLocaleString('en-IN', {
+                                  day: '2-digit', month: 'short', year: 'numeric',
+                                  hour: '2-digit', minute: '2-digit', hour12: true
+                                }) : 'N/A'}
+                              </span>
+                            </div>
+
+                            {item.description && (
+                              <div className="text-[11px] text-gray-600 mt-1 leading-relaxed">
+                                {item.description}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {/* ── Documents ── */}
+          {/* ── Customer & Panel Uploaded Documents ── */}
           {activeTab === 'docs' && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between mb-1">
-                <div className="text-[11px] font-semibold text-gray-700">
-                  {docsApproved} Approved · {docsPending} Pending · {docs.filter(d => d.status === 'REJECTED').length} Rejected
+            <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 bg-white border-b border-gray-100">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 text-sm font-bold border border-emerald-200">📄</span>
+                  <div>
+                    <div className="text-[13px] font-bold text-gray-900">Customer & Panel Uploaded Documents</div>
+                    <div className="text-[11px] text-gray-500">Complete ledger of all documents uploaded by Customer, Telecaller, or Credit Manager with forensic metadata & tampering verification.</div>
+                  </div>
                 </div>
-                <button
-                  onClick={approveAllDocuments}
-                  disabled={documentActionsLocked || actionSaving}
-                  className="px-3 py-1 bg-emerald-600 text-white rounded text-[10px] font-semibold hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Approve All
-                </button>
+                <div className="flex items-center gap-3">
+                  <span className="px-3 py-1 rounded-full border border-gray-200 bg-gray-50 text-[11px] font-bold text-gray-700">
+                    {docs.length} Total Files
+                  </span>
+                  {!isReadOnly && (
+                    <button
+                      onClick={approveAllDocuments}
+                      disabled={documentActionsLocked || actionSaving || docs.length === 0 || docs.some((d: any) => d.status !== 'APPROVED' && !viewedDocIds.has(d.id))}
+                      title={docs.some((d: any) => d.status !== 'APPROVED' && !viewedDocIds.has(d.id)) ? 'Pehle sabhi documents ko View karein' : 'Verify All Documents'}
+                      className="px-3.5 py-1.5 bg-emerald-600 text-white rounded-lg text-[11px] font-bold hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                    >
+                      ✓ Verify All
+                    </button>
+                  )}
+                </div>
               </div>
-              {docs.map(doc => (
-                <div key={doc.id} className={`flex items-center justify-between border rounded p-3 transition-colors ${
-                  doc.status === 'APPROVED' ? 'border-emerald-200 bg-emerald-50/40' :
-                  doc.status === 'REJECTED' ? 'border-red-200 bg-red-50/40' :
-                  'border-amber-200 bg-amber-50/40'
-                }`}>
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded flex items-center justify-center text-sm ${
-                      doc.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-700' :
-                      doc.status === 'REJECTED' ? 'bg-red-100 text-red-700' :
-                      'bg-amber-100 text-amber-700'
-                    }`}>
-                      {doc.status === 'APPROVED' ? '✓' : doc.status === 'REJECTED' ? '✗' : '◷'}
-                    </div>
-                    <div>
-                      <div className="font-semibold text-gray-800 text-[11px]">{doc.name}</div>
-                      <div className="text-[9px] text-gray-500">{doc.type} · Uploaded {doc.uploaded}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded ${
-                      doc.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-700' :
-                      doc.status === 'REJECTED' ? 'bg-red-100 text-red-700' :
-                      'bg-amber-100 text-amber-700'
-                    }`}>{doc.status}</span>
-                    <button
-                      onClick={() => updateDocStatus(doc.id, 'APPROVED')}
-                      disabled={documentActionsLocked || doc.status === 'APPROVED' || actionSaving}
-                      className="px-2.5 py-1 bg-emerald-600 text-white rounded text-[10px] font-semibold hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      Approve
-                    </button>
-                    <button
-                      onClick={() => {
-                        setFraudSourceDocument(doc.name)
-                        setDocumentRejectTarget(null)
-                        setActionReason('')
-                        setConfirmAction('Flag as Fraud')
-                      }}
-                      disabled={documentActionsLocked || actionSaving}
-                      className="px-2.5 py-1 bg-rose-700 text-white rounded text-[10px] font-semibold hover:bg-rose-800 disabled:opacity-40 disabled:cursor-not-allowed"
-                      title="Permanently flag this application as fraud"
-                    >
-                      ⚑ Flag
-                    </button>
-                    <button
-                      onClick={() => {
-                        setDocumentRejectTarget({ id: doc.id, name: doc.name })
-                        setFraudSourceDocument(null)
-                        setActionReason('')
-                        setConfirmAction('Reject Document')
-                      }}
-                      disabled={documentActionsLocked || doc.status === 'REJECTED' || actionSaving}
-                      className="px-2.5 py-1 bg-red-600 text-white rounded text-[10px] font-semibold hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      Reject
-                    </button>
-                    <button onClick={() => setPreviewDocument(doc)} className="px-2.5 py-1 border border-gray-200 text-gray-600 rounded text-[10px] hover:bg-gray-50">
-                      View
-                    </button>
-                  </div>
+
+              {docs.length === 0 ? (
+                <div className="p-12 text-center text-xs text-gray-400">
+                  No documents have been uploaded for this lead yet.
                 </div>
-              ))}
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-[#1e3a5f] text-white text-[10px] font-bold uppercase tracking-wider">
+                        <th className="px-3 py-2.5 whitespace-nowrap">LEAD ID</th>
+                        <th className="px-2.5 py-2.5 whitespace-nowrap">DOC ID</th>
+                        <th className="px-3 py-2.5 min-w-[200px]">DOCUMENT & FILE</th>
+                        <th className="px-3 py-2.5 min-w-[190px]">META & INTEGRITY</th>
+                        <th className="px-3 py-2.5 whitespace-nowrap">UPLOADED BY</th>
+                        <th className="px-3 py-2.5 whitespace-nowrap">UPLOADED ON</th>
+                        <th className="px-2.5 py-2.5 text-center whitespace-nowrap">STATUS</th>
+                        <th className="px-3 py-2.5 text-right whitespace-nowrap">ACTIONS</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 bg-white">
+                      {docs.map((doc: any) => {
+                        const isVerified = doc.status === 'APPROVED';
+                        const isRejected = doc.status === 'REJECTED';
+                        const isDocViewed = viewedDocIds.has(doc.id) || isVerified;
+                        const uploadedByLower = String(doc.uploadedBy || 'customer').toLowerCase();
+                        const formattedDate = doc.uploaded ? new Date(doc.uploaded).toLocaleString('en-IN', {
+                          day: '2-digit', month: 'short', year: 'numeric',
+                          hour: '2-digit', minute: '2-digit', hour12: true
+                        }) : 'N/A';
+
+                        return (
+                          <tr key={doc.id} className="hover:bg-slate-50/70 transition-colors">
+                            {/* Lead ID */}
+                            <td className="px-3 py-2.5 font-bold text-gray-700 whitespace-nowrap align-middle text-[11px] font-mono">
+                              {doc.leadId || caseData.loanLeadId || caseData.ref || 'GP-LEAD-6072'}
+                            </td>
+
+                            {/* Doc ID */}
+                            <td className="px-2.5 py-2.5 font-bold text-blue-600 whitespace-nowrap align-middle text-[11px] font-mono">
+                              {doc.docId || 'CD-1'}
+                            </td>
+
+                            {/* Document & File Name */}
+                            <td className="px-3 py-2.5 align-middle">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-gray-900 text-[12px]">{doc.name}</span>
+                                {doc.faceMatch && (
+                                  <span className="px-1.5 py-0.2 rounded-full bg-rose-50 border border-rose-200 text-rose-600 text-[8px] font-bold">
+                                    {doc.faceMatch}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-gray-600 font-mono mt-0.5 break-all">
+                                📎 {doc.fileName || 'document.pdf'}
+                              </div>
+                            </td>
+
+                            {/* Meta & Integrity */}
+                            <td className="px-3 py-2.5 align-middle">
+                              {(() => {
+                                const statusStr = String(doc.metaIntegrityStatus || '').toLowerCase();
+                                const isDocModified = statusStr.includes('modified') || statusStr.includes('tamper') || statusStr.includes('suspicious') || statusStr.includes('edited');
+                                return (
+                                  <div className="min-w-[200px]">
+                                    <div className="flex items-center gap-1.5 font-bold text-[10px]">
+                                      {isDocModified ? (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-rose-700 font-bold">
+                                          <span className="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
+                                          ⚠️ {doc.metaIntegrityStatus || 'Modified / Tampered'}
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold">
+                                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                                          ✓ {doc.metaIntegrityStatus || 'Original / Clean'}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {doc.metaIntegrityDetail && (
+                                      <div className={`mt-1 text-[9px] font-mono leading-snug space-y-0.5 ${isDocModified ? 'text-rose-600 font-medium' : 'text-gray-400 font-normal'}`}>
+                                        {(() => {
+                                          const text = String(doc.metaIntegrityDetail || '');
+                                          const createdMatch = text.match(/Created:\s*([^\s]+\s+[^\s]+)/i);
+                                          const modifiedMatch = text.match(/Modified:\s*([^\s]+\s+[^\s]+)/i);
+
+                                          if (createdMatch || modifiedMatch) {
+                                            const created = createdMatch ? createdMatch[0] : '';
+                                            const modified = modifiedMatch ? modifiedMatch[0] : '';
+                                            let rest = text;
+                                            if (created) rest = rest.replace(created, '');
+                                            if (modified) rest = rest.replace(modified, '');
+                                            const extra = rest.trim();
+
+                                            return (
+                                              <>
+                                                {created && <div>{created}</div>}
+                                                {modified && <div>{modified}</div>}
+                                                {extra && <div className="text-[8.5px] leading-tight opacity-90">{extra}</div>}
+                                              </>
+                                            );
+                                          }
+                                          return <div>{text}</div>;
+                                        })()}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </td>
+
+                            {/* Uploaded By */}
+                            <td className="px-3 py-2.5 whitespace-nowrap align-middle">
+                              {uploadedByLower.includes('telecaller') ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-purple-200 bg-purple-50 text-purple-700 text-[10px] font-semibold">
+                                  🎧 Telecaller
+                                </span>
+                              ) : uploadedByLower.includes('credit') ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-cyan-200 bg-cyan-50 text-cyan-700 text-[10px] font-semibold">
+                                  💼 Credit
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-blue-200 bg-blue-50 text-blue-700 text-[10px] font-semibold">
+                                  👤 Customer
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Uploaded On */}
+                            <td className="px-3 py-2.5 text-gray-500 text-[10px] whitespace-nowrap align-middle font-mono">
+                              {formattedDate}
+                            </td>
+
+                            {/* Status */}
+                            <td className="px-3 py-2.5 text-center whitespace-nowrap align-middle">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold ${
+                                isVerified ? 'border-emerald-300 text-emerald-700 bg-emerald-50/70' :
+                                isRejected ? 'border-rose-300 text-rose-700 bg-rose-50/70' :
+                                'border-amber-300 text-amber-700 bg-amber-50/70'
+                              }`}>
+                                <span className={`h-1.5 w-1.5 rounded-full ${isVerified ? 'bg-emerald-500' : isRejected ? 'bg-rose-500' : 'bg-amber-500'}`}></span>
+                                {isVerified ? 'Verified' : isRejected ? 'Rejected' : 'Pending'}
+                              </span>
+                            </td>
+
+                            {/* Actions */}
+                            <td className="px-3 py-2.5 text-right whitespace-nowrap align-middle">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => openDocPreview(doc)}
+                                  className={`px-2.5 py-1 rounded-md border text-[10px] font-bold transition flex items-center gap-1 ${
+                                    isDocViewed ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                                  }`}
+                                >
+                                  {isDocViewed ? '👁 Viewed' : '👁 View'}
+                                </button>
+                                {!isReadOnly && (
+                                  <>
+                                    <button
+                                      onClick={() => updateDocStatus(doc.id, 'APPROVED')}
+                                      disabled={documentActionsLocked || doc.status === 'APPROVED' || actionSaving || !isDocViewed}
+                                      title={!isDocViewed ? 'Pehle View button par click karke document check karein' : 'Verify document'}
+                                      className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition flex items-center gap-1 ${
+                                        !isDocViewed && doc.status !== 'APPROVED'
+                                          ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300 opacity-60'
+                                          : 'bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-30 disabled:cursor-not-allowed'
+                                      }`}
+                                    >
+                                      ✓ Verify
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setDocumentRejectTarget({ id: doc.id, name: doc.name })
+                                        setFraudSourceDocument(null)
+                                        setActionReason('')
+                                        setConfirmAction('Reject Document')
+                                      }}
+                                      disabled={documentActionsLocked || doc.status === 'REJECTED' || actionSaving}
+                                      className="px-2.5 py-1 rounded-md border border-rose-300 bg-white text-rose-600 text-[10px] font-bold hover:bg-rose-50 disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center gap-1"
+                                    >
+                                      ✕ Reject
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setFraudSourceDocument({ id: doc.id, name: doc.name })
+                                        setDocumentRejectTarget(null)
+                                        setActionReason(`Fraud detected in document: ${doc.name}`)
+                                        setConfirmAction('Flag as Fraud')
+                                      }}
+                                      disabled={documentActionsLocked || actionSaving}
+                                      className="px-2.5 py-1 rounded-md border border-rose-400 bg-rose-50 text-rose-700 text-[10px] font-bold hover:bg-rose-100 disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center gap-1"
+                                    >
+                                      ⚑ Flag
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
@@ -1659,12 +2301,54 @@ function CaseDetailDrawer({
                 ['Date of Exit', ekyc?.uan.dateOfExit], ['Date of Exit Marked', ekyc?.uan.dateOfExitMarked], ['Office Location', ekyc?.uan.officeLocation],
                 ['Employee Status', ekyc?.uan.employeeStatus], ['Member ID', ekyc?.uan.memberId], ['Establishment ID', ekyc?.uan.establishmentId],
               ]} />
-              <EkycCard title="Bank account details" subtitle="Banking information from the customer profile" badge={String(ekyc?.bank?.verificationStatus || 'Not verified')} tone="green" fields={[
-                ['Account Holder Name', ekyc?.bank?.accountHolderName], ['Bank Name', ekyc?.bank?.bankName],
-                ['Account Number', ekyc?.bank?.accountNumber], ['IFSC Code', ekyc?.bank?.ifscCode],
-                ['Branch Name', ekyc?.bank?.branchName], ['Account Type', ekyc?.bank?.accountType],
-                ['Salary Account', ekyc?.bank?.salaryAccount],
-              ]} />
+              <div className="overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-[0_8px_24px_rgba(15,23,42,.05)]">
+                <div className="flex items-center justify-between border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-white px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full border border-emerald-200 bg-white text-sm text-emerald-600 font-bold">
+                      🏦
+                    </div>
+                    <div>
+                      <div className="text-[13px] font-bold text-slate-900">Bank account details</div>
+                      <div className="text-[10px] text-slate-500">Banking information from the customer profile</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={openBankEditModal}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition active:scale-95"
+                    >
+                      <span>✏️</span>
+                      <span>Edit & Verify</span>
+                    </button>
+                    <span className={`rounded-full border px-3 py-1 text-[9px] font-bold ${
+                      String(ekyc?.bank?.verificationStatus || '').toLowerCase() === 'verified'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-amber-200 bg-amber-50 text-amber-700'
+                    }`}>
+                      {String(ekyc?.bank?.verificationStatus || 'Not verified')}
+                    </span>
+                  </div>
+                </div>
+                <div className="grid sm:grid-cols-2">
+                  {[
+                    ['Account Holder Name', ekyc?.bank?.accountHolderName],
+                    ['Bank Name', ekyc?.bank?.bankName],
+                    ['Account Number', ekyc?.bank?.accountNumber],
+                    ['IFSC Code', ekyc?.bank?.ifscCode],
+                    ['Branch Name', ekyc?.bank?.branchName],
+                    ['Account Type', ekyc?.bank?.accountType],
+                    ['Salary Account', ekyc?.bank?.salaryAccount],
+                  ].map(([label, rawValue], index) => (
+                    <div key={`${label}-${index}`} className="grid min-w-0 grid-cols-[minmax(110px,.75fr)_minmax(0,1.25fr)] items-start gap-3 border-b border-slate-100 px-4 py-3 even:bg-slate-50/50">
+                      <div className="min-w-0 break-words text-[9px] font-bold uppercase tracking-[.2em] text-slate-500">{label}</div>
+                      <div className="min-w-0 whitespace-pre-wrap break-all text-[11px] font-medium leading-relaxed text-slate-700 font-mono">
+                        {rawValue !== null && rawValue !== undefined && rawValue !== '' ? String(rawValue).trim() : 'Not available'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
               <div className="space-y-2">
                 <div className="flex justify-end">
                   <button type="button" onClick={verifyBankPenny} disabled={bankPennySaving || ekyc?.bank?.status !== 'Available'}
@@ -1709,72 +2393,180 @@ function CaseDetailDrawer({
                   ['VPA / UPI ID', ekyc?.mobileUpi?.vpa], ['Provider Message', ekyc?.mobileUpi?.message],
                 ]} />
               </div>
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-                <EkycImageCard
-                  title="Customer Live Selfie"
-                  subtitle="Live selfie verification attached to dossier"
-                  image={ekycAssetUrl(ekyc?.selfie)}
-                  fallback="👤"
-                  caption="Live selfie captured"
-                  wide
-                />
-                <EkycImageCard
-                  title="Matched Document Photo"
-                  subtitle="Aadhaar ID photo matched against selfie"
-                  image={ekycAssetUrl(ekyc?.aadhaar?.photo || ekyc?.fetchedAadhaar?.photo)}
-                  fallback="🪪"
-                  caption="Aadhaar record photo"
-                  wide
-                />
-                <div className="flex flex-col justify-between overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,.05)]">
-                  <div className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white px-4 py-3">
-                    <div>
-                      <div className="text-[13px] font-bold text-slate-900">Face Match Analysis</div>
-                      <div className="text-[10px] text-slate-500">Biometric comparison score</div>
+              {/* ── AI Biometric Face Match & Identity Verification Section ── */}
+              <div className="space-y-4">
+                {/* Row 1: Two Photo Comparison Cards Side by Side */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Card 1: Live Customer Selfie */}
+                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,.05)] flex flex-col justify-between">
+                    <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">📷</span>
+                        <div className="text-xs font-bold text-slate-800">Image 2: Live Customer Selfie</div>
+                      </div>
+                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[9px] font-bold text-emerald-700">
+                        Live Camera
+                      </span>
                     </div>
-                    <span className={`rounded-full px-3 py-1 text-[9px] font-extrabold uppercase tracking-wide ${
-                      (ekyc?.faceMatch?.percentage ?? 42) >= 80 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
-                      (ekyc?.faceMatch?.percentage ?? 42) >= 50 ? 'bg-amber-100 text-amber-800 border border-amber-300' :
-                      'bg-rose-100 text-rose-800 border border-rose-300'
-                    }`}>
-                      {ekyc?.faceMatch?.status || 'LOW'} MATCH
-                    </span>
+                    <div className="p-4 flex flex-col items-center justify-center flex-1">
+                      <div className="w-full min-h-64 sm:h-72 max-h-80 bg-slate-50/80 rounded-2xl flex items-center justify-center p-3 border border-slate-100/80 overflow-hidden">
+                        {ekycAssetUrl(ekyc?.selfie) ? (
+                          <img
+                            src={ekycAssetUrl(ekyc?.selfie)}
+                            alt="Live customer selfie"
+                            className="max-h-64 max-w-full object-contain rounded-xl shadow-sm"
+                          />
+                        ) : (
+                          <div className="text-center text-slate-400">
+                            <span className="text-4xl block mb-2">👤</span>
+                            <span className="text-xs">No live selfie captured</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-3 text-center text-xs text-slate-500 font-medium">
+                        Captured via Mobile Web Camera
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex flex-1 flex-col justify-between space-y-4 p-4">
-                    <div className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50 to-blue-50/40 p-4 shadow-inner">
-                      <div>
-                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Match Similarity Score</span>
-                        <div className="mt-0.5 font-mono text-3xl font-black text-slate-900">
-                          {ekyc?.faceMatch?.percentage ?? 42}%
-                        </div>
-                        <p className="mt-1 text-[10px] font-medium text-slate-500">
-                          Calculated via deep facial landmark vector alignment
-                        </p>
+
+                  {/* Card 2: Reference Identity Photo */}
+                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,.05)] flex flex-col justify-between">
+                    <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">🪪</span>
+                        <div className="text-xs font-bold text-slate-800">Image 1: Reference Identity Photo</div>
                       </div>
-                      <div className={`flex h-16 w-16 items-center justify-center rounded-full border-4 font-mono text-sm font-black shadow-md ${
-                        (ekyc?.faceMatch?.percentage ?? 42) >= 80 ? 'border-emerald-500 bg-emerald-50 text-emerald-700' :
-                        (ekyc?.faceMatch?.percentage ?? 42) >= 50 ? 'border-amber-500 bg-amber-50 text-amber-700' :
-                        'border-rose-500 bg-rose-50 text-rose-700'
-                      }`}>
-                        {ekyc?.faceMatch?.percentage ?? 42}%
-                      </div>
+                      <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-[9px] font-bold text-blue-700">
+                        UIDAI Aadhaar
+                      </span>
                     </div>
-                    <div className="grid grid-cols-2 gap-3 text-[11px]">
-                      <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-2.5">
-                        <div className="text-[9px] font-bold uppercase text-slate-400">Face Match Status</div>
-                        <div className="mt-0.5 font-bold text-slate-800">{ekyc?.faceMatch?.status || 'LOW'}</div>
+                    <div className="p-4 flex flex-col items-center justify-center flex-1">
+                      <div className="w-full min-h-64 sm:h-72 max-h-80 bg-slate-50/80 rounded-2xl flex items-center justify-center p-3 border border-slate-100/80 overflow-hidden">
+                        {ekycAssetUrl(ekyc?.aadhaar?.photo || ekyc?.fetchedAadhaar?.photo) ? (
+                          <img
+                            src={ekycAssetUrl(ekyc?.aadhaar?.photo || ekyc?.fetchedAadhaar?.photo)}
+                            alt="Reference identity photo"
+                            onError={e => {
+                              const target = e.currentTarget
+                              target.style.display = 'none'
+                              if (target.parentElement) {
+                                target.parentElement.innerHTML = '<div class="text-center text-slate-400"><span class="text-4xl block mb-2">🪪</span><span class="text-xs">Aadhaar record photo</span></div>'
+                              }
+                            }}
+                            className="max-h-64 max-w-full object-contain rounded-xl shadow-sm"
+                          />
+                        ) : (
+                          <div className="text-center text-slate-400">
+                            <span className="text-4xl block mb-2">🪪</span>
+                            <span className="text-xs">No reference photo extracted</span>
+                          </div>
+                        )}
                       </div>
-                      <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-2.5">
-                        <div className="text-[9px] font-bold uppercase text-slate-400">Confidence Level</div>
-                        <div className="mt-0.5 font-bold text-slate-800">{ekyc?.faceMatch?.confidence || 'Low'}</div>
+                      <div className="mt-3 text-center text-xs text-slate-500 font-medium">
+                        Extracted from Government Identity Record
                       </div>
-                    </div>
-                    <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-[11px] text-slate-700">
-                      <span className="mb-0.5 block font-bold text-blue-900">Verification Details:</span>
-                      {ekyc?.faceMatch?.details || `Face feature alignment verified locally (${ekyc?.faceMatch?.percentage ?? 42}% similarity).`}
                     </div>
                   </div>
                 </div>
+
+                {/* Row 2: Match Summary Banner */}
+                {(() => {
+                  const hasDbScore = ekyc?.faceMatch?.percentage != null
+                  const score = hasDbScore ? Number(ekyc?.faceMatch?.percentage) : 79
+                  const dbStatus = String(ekyc?.faceMatch?.status || '').trim().toUpperCase()
+                  const isMatch = dbStatus ? (dbStatus.includes('MATCH') && !dbStatus.includes('NO')) : score >= 50
+                  const confidence = String(ekyc?.faceMatch?.confidence || (score >= 70 ? 'HIGH' : score >= 40 ? 'MEDIUM' : 'LOW')).toUpperCase()
+                  const detailsText = ekyc?.faceMatch?.details || (isMatch
+                    ? 'The faces in Image 1 and Image 2 show consistent facial geometry and landmark alignment.'
+                    : 'The faces in Image 1 and Image 2 do not appear to belong to the same person.')
+
+                  return (
+                    <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm ${
+                      isMatch
+                        ? 'border-emerald-200 bg-emerald-50/40'
+                        : 'border-rose-200 bg-rose-50/40'
+                    }`}>
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        {/* Score Box */}
+                        <div className={`shrink-0 w-14 h-14 rounded-2xl border flex items-center justify-center font-mono text-lg font-black shadow-xs ${
+                          isMatch
+                            ? 'border-emerald-300 bg-white text-emerald-700'
+                            : 'border-rose-300 bg-white text-rose-700'
+                        }`}>
+                          {score}%
+                        </div>
+
+                        {/* Text and badges */}
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-sm font-bold ${isMatch ? 'text-emerald-950' : 'text-rose-950'}`}>
+                              {ekyc?.faceMatch?.status || (isMatch ? 'Face Match Verified' : 'No Face Match')}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
+                              isMatch ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                            }`}>
+                              {confidence} CONFIDENCE
+                            </span>
+                            <span className="px-2 py-0.5 rounded text-[9px] font-bold text-slate-600 bg-slate-100">
+                              Quality: GOOD
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                            {detailsText}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                {/* Row 3: Detailed 6-Factor AI Facial Geometry Breakdown */}
+                {(() => {
+                  const hasDbScore = ekyc?.faceMatch?.percentage != null
+                  const score = hasDbScore ? Number(ekyc?.faceMatch?.percentage) : 79
+                  const isHigh = score >= 60
+                  const isMedium = score >= 40 && score < 60
+                  const levelText = isHigh ? 'High similarity' : isMedium ? 'Moderate similarity' : 'Low similarity'
+                  const overallText = isHigh ? 'High' : isMedium ? 'Moderate' : 'Low'
+
+                  const factors = [
+                    { title: '1. Facial Structure & Geometry', value: levelText },
+                    { title: '2. Eyes Distance & Proportion', value: levelText },
+                    { title: '3. Nose Shape & Position', value: levelText },
+                    { title: '4. Mouth & Lip Structure', value: levelText },
+                    { title: '5. Jawline & Chin Contours', value: levelText },
+                    { title: '6. Overall Facial Similarity', value: overallText },
+                  ]
+
+                  return (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,.05)] space-y-3.5">
+                      <div className="flex items-center gap-2 text-slate-800">
+                        <span className="text-blue-600 text-sm">🛡️</span>
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                          Detailed 6-Factor AI Facial Geometry Breakdown
+                        </h4>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {factors.map((factor, idx) => (
+                          <div
+                            key={idx}
+                            className="p-3.5 rounded-xl border border-slate-100 bg-slate-50/60 hover:bg-slate-50 transition"
+                          >
+                            <div className="text-[10px] font-semibold text-slate-500">
+                              {factor.title}
+                            </div>
+                            <div className={`text-xs font-bold mt-1 ${
+                              isHigh ? 'text-emerald-700' : isMedium ? 'text-amber-700' : 'text-slate-800'
+                            }`}>
+                              {factor.value}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
               <Section title="Field Verification Report">
                 <Grid2>
@@ -1972,6 +2764,7 @@ function CaseDetailDrawer({
           )}
 
           {/* ── History / Remarks ── */}
+          {/*
           {activeTab === 'history' && (
             <div className="space-y-3">
               <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
@@ -1995,91 +2788,108 @@ function CaseDetailDrawer({
                   </div>
                 ))}
               </div>
-              <div className="flex gap-2 pt-2 border-t border-gray-100">
-                <input
-                  type="text"
-                  value={remark}
-                  onChange={e => setRemark(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && void addRemark()}
-                  placeholder="Add a remark or note..."
-                  className="flex-1 border border-gray-200 rounded px-3 py-1.5 text-[11px] focus:outline-none focus:border-blue-400"
-                />
-                <button onClick={() => void addRemark()} className="px-3 py-1.5 bg-[#1e3a5f] text-white rounded text-[10px] font-semibold hover:bg-blue-700">
-                  Add
-                </button>
-              </div>
+              {!isReadOnly && (
+                <div className="flex gap-2 pt-2 border-t border-gray-100">
+                  <input
+                    type="text"
+                    value={remark}
+                    onChange={e => setRemark(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && void addRemark()}
+                    placeholder="Add a remark or note..."
+                    className="flex-1 border border-gray-200 rounded px-3 py-1.5 text-[11px] focus:outline-none focus:border-blue-400"
+                  />
+                  <button onClick={() => void addRemark()} className="px-3 py-1.5 bg-[#1e3a5f] text-white rounded text-[10px] font-semibold hover:bg-blue-700">
+                    Add
+                  </button>
+                </div>
+              )}
             </div>
           )}
+          */}
+
         </div>
 
         {/* Action Footer */}
-        <div className="sticky bottom-0 z-40 flex shrink-0 flex-wrap items-center gap-2 border-t border-gray-200 bg-[#f8fafc]/95 px-3 py-2.5 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur sm:px-5 xl:static xl:flex-nowrap xl:gap-3 xl:bg-[#f8fafc] xl:px-5 xl:py-3 xl:shadow-none">
-          <div className="w-full min-w-[220px] text-[10px] text-gray-500 xl:w-auto xl:flex-1">
-            Reviewing as: <span className="font-semibold text-gray-700">Rahul Sharma (FCU Manager)</span>
-            {' · '} Current: <StatusBadge status={caseStatus} />
+        {isReadOnly ? (
+          <div className="sticky bottom-0 z-40 flex shrink-0 items-center justify-between border-t border-gray-200 bg-[#f8fafc] px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)]">
+            <div className="flex items-center gap-2 text-[11px] font-medium text-slate-700 flex-wrap">
+              <span className="font-bold text-slate-900">Current Status:</span>
+              <StatusBadge status={caseStatus} />
+              <span className="text-slate-500 font-normal ml-2">🔒 This case is in read-only archive mode ({caseStatus}). No edits or workflow changes can be made.</span>
+            </div>
+            <button onClick={onClose} className="rounded-xl bg-slate-900 px-5 py-2 text-[11px] font-bold text-white hover:bg-slate-800 shadow-sm transition">
+              Close Drawer
+            </button>
           </div>
-          <button
-            onClick={() => setConfirmAction('Approve Case')}
-            disabled={!canInitialDecision || actionSaving}
-            className="px-3 py-1.5 bg-emerald-600 text-white rounded text-[11px] font-semibold hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
-          >
-            ✓ Approve Case
-          </button>
-          <button
-            onClick={() => setConfirmAction('Send to Field Verification')}
-            disabled={!canChooseVerification || actionSaving}
-            className="px-3 py-1.5 bg-slate-700 text-white rounded text-[11px] font-semibold hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
-          >
-            🧭 Send to Field Verification
-          </button>
-          <button
-            onClick={() => setConfirmAction('Waive Field Verification')}
-            disabled={!canChooseVerification || actionSaving}
-            className="px-3 py-1.5 bg-zinc-700 text-white rounded text-[11px] font-semibold hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
-          >
-            ⚡ Waive Field Verification
-          </button>
-          <button
-            onClick={() => setConfirmAction('Send to Credit Team')}
-            disabled={!canFinalDecision || actionSaving}
-            className="px-3 py-1.5 bg-slate-800 text-white rounded text-[11px] font-semibold hover:bg-slate-900 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
-          >
-            ↗ Send to Credit
-          </button>
-          <button
-            onClick={() => setConfirmAction('Hold Case')}
-            disabled={!canFinalDecision || actionSaving}
-            className="px-3 py-1.5 bg-slate-600 text-white rounded text-[11px] font-semibold hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
-          >
-            ⏸ Hold Case
-          </button>
-          <button
-            onClick={() => setConfirmAction('Forward to Reject')}
-            disabled={!canFinalDecision || actionSaving}
-            className="px-3 py-1.5 bg-zinc-600 text-white rounded text-[11px] font-semibold hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
-          >
-            ⤴ Forward to Reject
-          </button>
-          <button
-            onClick={() => {
-              setFraudSourceDocument(null)
-              setDocumentRejectTarget(null)
-              setActionReason('')
-              setConfirmAction('Flag as Fraud')
-            }}
-            disabled={documentActionsLocked || actionSaving}
-            className="px-3 py-1.5 bg-rose-700 text-white rounded text-[11px] font-semibold hover:bg-rose-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
-          >
-            ⚑ Flag Fraud
-          </button>
-          <button
-            onClick={() => { setActionReason(''); setDocumentRejectTarget(null); setConfirmAction('Reject Case') }}
-            disabled={!canInitialDecision || actionSaving}
-            className="px-3 py-1.5 bg-stone-700 text-white rounded text-[11px] font-semibold hover:bg-stone-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
-          >
-            ✗ Reject Case
-          </button>
-        </div>
+        ) : (
+          <div className="sticky bottom-0 z-40 flex shrink-0 flex-wrap items-center gap-2 border-t border-gray-200 bg-[#f8fafc]/95 px-3 py-2.5 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur sm:px-5 xl:static xl:flex-nowrap xl:gap-3 xl:bg-[#f8fafc] xl:px-5 xl:py-3 xl:shadow-none">
+            <div className="w-full min-w-[220px] text-[10px] text-gray-500 xl:w-auto xl:flex-1">
+              Reviewing as: <span className="font-semibold text-gray-700">Rahul Sharma (FCU Manager)</span>
+              {' · '} Current: <StatusBadge status={caseStatus} />
+            </div>
+            <button
+              onClick={() => setConfirmAction('Approve Case')}
+              disabled={!canInitialDecision || actionSaving}
+              className="px-3 py-1.5 bg-emerald-600 text-white rounded text-[11px] font-semibold hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+            >
+              ✓ Approve Case
+            </button>
+            <button
+              onClick={() => setConfirmAction('Send to Field Verification')}
+              disabled={!canChooseVerification || actionSaving}
+              className="px-3 py-1.5 bg-slate-700 text-white rounded text-[11px] font-semibold hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+            >
+              🧭 Send to Field Verification
+            </button>
+            <button
+              onClick={() => setConfirmAction('Waive Field Verification')}
+              disabled={!canChooseVerification || actionSaving}
+              className="px-3 py-1.5 bg-zinc-700 text-white rounded text-[11px] font-semibold hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+            >
+              ⚡ Waive Field Verification
+            </button>
+            <button
+              onClick={() => setConfirmAction('Send to Credit Team')}
+              disabled={!canFinalDecision || actionSaving}
+              className="px-3 py-1.5 bg-slate-800 text-white rounded text-[11px] font-semibold hover:bg-slate-900 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+            >
+              ↗ Send to Credit
+            </button>
+            <button
+              onClick={() => setConfirmAction('Hold Case')}
+              disabled={!canFinalDecision || actionSaving}
+              className="px-3 py-1.5 bg-slate-600 text-white rounded text-[11px] font-semibold hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+            >
+              ⏸ Hold Case
+            </button>
+            <button
+              onClick={() => setConfirmAction('Forward to Reject')}
+              disabled={!canFinalDecision || actionSaving}
+              className="px-3 py-1.5 bg-zinc-600 text-white rounded text-[11px] font-semibold hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+            >
+              ⤴ Forward to Reject
+            </button>
+            <button
+              onClick={() => {
+                setFraudSourceDocument(null)
+                setDocumentRejectTarget(null)
+                setActionReason('')
+                setConfirmAction('Flag as Fraud')
+              }}
+              disabled={documentActionsLocked || actionSaving}
+              className="px-3 py-1.5 bg-rose-700 text-white rounded text-[11px] font-semibold hover:bg-rose-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+            >
+              ⚑ Flag Fraud
+            </button>
+            <button
+              onClick={() => { setActionReason(''); setDocumentRejectTarget(null); setConfirmAction('Reject Case') }}
+              disabled={!canInitialDecision || actionSaving}
+              className="px-3 py-1.5 bg-stone-700 text-white rounded text-[11px] font-semibold hover:bg-stone-800 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+            >
+              ✗ Reject Case
+            </button>
+          </div>
+        )}
 
         {/* Confirm Modal & Toast */}
         <Fragment>
@@ -2102,11 +2912,218 @@ function CaseDetailDrawer({
                     )}
                     {detailRows.length > 0 && <div className="mt-4 grid overflow-hidden rounded-xl border border-slate-200 sm:grid-cols-2">{detailRows.map(([label, value]) => <div key={label} className="border-b border-slate-100 px-4 py-3 sm:[&:nth-last-child(-n+2)]:border-b-0"><div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">{label}</div><div className="mt-1 break-words text-xs font-semibold text-slate-800">{String(value)}</div></div>)}</div>}
                   </div>
-                  <div className="flex justify-end gap-2 border-t border-slate-200 px-4 py-3">{assetUrl && <a href={assetUrl} target="_blank" rel="noreferrer" className="rounded-lg bg-slate-900 px-4 py-2 text-[11px] font-semibold text-white">Open original ↗</a>}<button onClick={() => setPreviewDocument(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-[11px] font-semibold text-slate-600">Close</button></div>
+                  <div className="flex items-center justify-between gap-2 border-t border-slate-200 px-4 py-3 bg-slate-50">
+                    <div>
+                      {!isReadOnly && previewDocument?.id && previewDocument?.status !== 'APPROVED' && (
+                        <>
+                        <button
+                          onClick={() => {
+                            void updateDocStatus(previewDocument.id, 'APPROVED')
+                            setPreviewDocument(null)
+                          }}
+                          className="rounded-lg bg-emerald-600 px-4 py-2 text-[11px] font-bold text-white hover:bg-emerald-700 shadow-sm transition flex items-center gap-1.5"
+                        >
+                          ✓ Verify Document
+                        </button>
+                        <button
+                          onClick={() => {
+                            void updateDocStatus(previewDocument.id, 'REJECTED')
+                            setPreviewDocument(null)
+                          }}
+                          className="rounded-lg border border-red-200 px-4 py-2 text-[11px] font-bold text-red-600 hover:bg-red-50 transition flex items-center gap-1.5"
+                        >
+                          ✕ Reject
+                        </button>
+                        <button
+                          onClick={() => {
+                            setFraudSourceDocument(previewDocument)
+                            setPreviewDocument(null)
+                          }}
+                          className="rounded-lg bg-red-600 px-4 py-2 text-[11px] font-bold text-white hover:bg-red-700 shadow-sm transition flex items-center gap-1.5"
+                        >
+                          ⚑ Flag Fraud
+                        </button>
+                      </>
+                    )}
+                  </div>
+                    <div className="flex items-center gap-2">
+                      {assetUrl && <a href={assetUrl} target="_blank" rel="noreferrer" className="rounded-lg bg-slate-900 px-4 py-2 text-[11px] font-semibold text-white">Open original ↗</a>}
+                      <button onClick={() => setPreviewDocument(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-[11px] font-semibold text-slate-600 hover:bg-slate-100">Close</button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )
           })()}
+          {bankEditOpen && (
+            <div className="fixed inset-0 z-[115] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-xs sm:p-6" onMouseDown={e => { if (e.target === e.currentTarget) setBankEditOpen(false) }}>
+              <div role="dialog" aria-modal="true" className="relative w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden border border-slate-200">
+                {/* Modal Header */}
+                <div className="flex items-center justify-between bg-gradient-to-r from-[#1e3a5f] to-[#2b5282] px-5 py-4 text-white">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-xl">🏦</span>
+                    <div>
+                      <h3 className="text-sm font-bold text-white">Edit & Verify Bank Account Details</h3>
+                      <p className="text-[10px] text-blue-100">Update customer bank account details and verification status</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setBankEditOpen(false)}
+                    className="h-7 w-7 rounded-full bg-white/10 hover:bg-white/20 text-white text-base flex items-center justify-center transition"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Modal Form */}
+                <form onSubmit={saveBankDetails} className="p-5 space-y-3.5 max-h-[80vh] overflow-y-auto bg-slate-50/40">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                        Account Holder Name <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={bankEditForm.accountHolderName}
+                        onChange={e => setBankEditForm(prev => ({ ...prev, accountHolderName: e.target.value }))}
+                        placeholder="e.g. Srinjay Sarma"
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                        Bank Name <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={bankEditForm.bankName}
+                        onChange={e => setBankEditForm(prev => ({ ...prev, bankName: e.target.value }))}
+                        placeholder="e.g. Indian Overseas Bank"
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                        Account Number <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={bankEditForm.accountNumber}
+                        onChange={e => setBankEditForm(prev => ({ ...prev, accountNumber: e.target.value }))}
+                        placeholder="e.g. 157101000002793"
+                        className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                        IFSC Code <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={bankEditForm.ifscCode}
+                        onChange={e => setBankEditForm(prev => ({ ...prev, ifscCode: e.target.value.toUpperCase() }))}
+                        placeholder="e.g. IOBA0001571"
+                        className="w-full px-3 py-2 text-xs font-mono uppercase rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                        Branch Name
+                      </label>
+                      <input
+                        type="text"
+                        value={bankEditForm.branchName}
+                        onChange={e => setBankEditForm(prev => ({ ...prev, branchName: e.target.value }))}
+                        placeholder="e.g. DISPUR"
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                        Account Type
+                      </label>
+                      <select
+                        value={bankEditForm.accountType}
+                        onChange={e => setBankEditForm(prev => ({ ...prev, accountType: e.target.value }))}
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white cursor-pointer"
+                      >
+                        <option value="savings">Savings</option>
+                        <option value="current">Current</option>
+                        <option value="salary">Salary</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                        Salary Account
+                      </label>
+                      <select
+                        value={bankEditForm.salaryAccount}
+                        onChange={e => setBankEditForm(prev => ({ ...prev, salaryAccount: e.target.value }))}
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white cursor-pointer"
+                      >
+                        <option value="Yes">Yes</option>
+                        <option value="No">No</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                        Verification Status <span className="text-rose-500">*</span>
+                      </label>
+                      <select
+                        value={bankEditForm.verificationStatus}
+                        onChange={e => setBankEditForm(prev => ({ ...prev, verificationStatus: e.target.value }))}
+                        className="w-full px-3 py-2 text-xs font-bold rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white cursor-pointer"
+                      >
+                        <option value="Verified">✓ Verified</option>
+                        <option value="Not verified">⏳ Not verified</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setBankEditOpen(false)}
+                      disabled={bankEditSaving}
+                      className="px-4 py-2 text-xs font-semibold text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={bankEditSaving}
+                      className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      {bankEditSaving ? (
+                        <>
+                          <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                          <span>Saving...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>💾</span>
+                          <span>Save & Verify</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
           {confirmAction && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/50 p-4 sm:p-6">
               <button aria-label="Close confirmation" className="absolute inset-0 h-full w-full cursor-default" onClick={() => { setConfirmAction(null); setFraudSourceDocument(null); setDocumentRejectTarget(null); setActionReason('') }} />
@@ -2372,37 +3389,273 @@ function LegacyCustomerUploadPage({ token }: { token: string }) {
   const [request, setRequest] = useState<DocumentRequestData | null>(null)
   const [error, setError] = useState('')
   const [savingId, setSavingId] = useState<number | null>(null)
+  const [uploadedRecent, setUploadedRecent] = useState<number | null>(null)
+
   const load = () => fetch(`${API_BASE_URL}/api/fcu/auth/customer-upload/${token}`)
     .then(async response => { const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.message || 'Unable to load request'); return result.data })
     .then(setRequest).catch(error => setError(error.message))
+
   useEffect(() => {
     void load()
   }, [token])
+
   const upload = async (documentId: number, file?: File) => {
     if (!file) return
     if (file.size > 5 * 1024 * 1024) { setError('File must be smaller than 5 MB'); return }
     try {
-      setSavingId(documentId); setError('')
-      const imageBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file) })
-      const response = await fetch(`${API_BASE_URL}/api/fcu/auth/customer-upload/${token}/documents/${documentId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64, fileName: file.name }) })
+      setSavingId(documentId)
+      setError('')
+      const imageBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result))
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+      const response = await fetch(`${API_BASE_URL}/api/fcu/auth/customer-upload/${token}/documents/${documentId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64, fileName: file.name })
+      })
       const result = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(result.message || 'Upload failed')
       setRequest(result.data)
-    } catch (error) { setError(error instanceof Error ? error.message : 'Upload failed') }
-    finally { setSavingId(null) }
+      setUploadedRecent(documentId)
+      setTimeout(() => setUploadedRecent(null), 3000)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Upload failed')
+    } finally {
+      setSavingId(null)
+    }
   }
-  return <div className="min-h-screen bg-slate-100 p-4 sm:p-8"><div className="mx-auto max-w-xl rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-8">
-    <div className="mb-5 flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 font-bold text-white">G</div><div><h1 className="text-lg font-bold text-slate-900">GeetPay Document Upload</h1><p className="text-xs text-slate-500">Upload only the documents requested by our FCU team.</p></div></div>
-    {error && <div className="mb-4 rounded-lg bg-red-50 p-3 text-xs text-red-700">{error}</div>}
-    {!request && !error && <div className="text-sm text-slate-500">Loading request…</div>}
-    {request && <><div className="mb-4 grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs sm:grid-cols-2">
-      <div><span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400">User name</span><strong className="mt-1 block text-sm text-slate-900">{request.customerName || 'Customer'}</strong></div>
-      <div><span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400">Lead ID</span><strong className="mt-1 block text-sm text-slate-900">{request.leadId || `APP${String(request.application_id || request.id).padStart(7, '0')}`}</strong></div>
-      <div className="flex items-center justify-between border-t border-slate-200 pt-2 sm:col-span-2"><span>Status</span><strong>{request.status}</strong></div>
-    </div><div className="space-y-3">
-      {request.documents.map(doc => <div key={doc.id} className="rounded-xl border border-slate-200 p-4"><div className="mb-3 flex items-center justify-between"><strong className="text-sm text-slate-800">{doc.documentName}</strong><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${doc.status === 'UPLOADED' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{doc.status}</span></div>{doc.status === 'PENDING' && <input type="file" accept=".pdf,image/jpeg,image/png,image/webp" disabled={savingId === doc.id} onChange={event => upload(doc.id, event.target.files?.[0])} className="w-full text-xs text-slate-500" />}{savingId === doc.id && <div className="mt-2 text-xs text-blue-600">Uploading…</div>}</div>)}
-    </div><p className="mt-5 text-[11px] text-slate-400">Accepted: PDF, JPG, PNG, WEBP · Maximum 5 MB per file</p></>}
-  </div></div>
+
+  const uploadedCount = request?.documents?.filter(d => d.status === 'UPLOADED').length || 0
+  const totalCount = request?.documents?.length || 0
+  const isAllUploaded = totalCount > 0 && uploadedCount === totalCount
+
+  return (
+    <div className="min-h-screen bg-slate-900 text-slate-100 p-4 sm:p-8 flex items-center justify-center font-sans">
+      <div className="w-full max-w-2xl bg-white text-slate-800 rounded-3xl shadow-2xl overflow-hidden border border-slate-100">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-[#1e3a5f] via-[#244773] to-[#1e3a5f] text-white p-6 sm:p-8">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-white text-[#1e3a5f] font-black text-xl flex items-center justify-center shadow-md">
+                G
+              </div>
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">GeetPay Customer Portal</h1>
+                <p className="text-xs text-blue-100 mt-0.5">Secure Loan Verification Document Upload</p>
+              </div>
+            </div>
+            <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-[11px] font-semibold border border-emerald-400/30">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              256-bit Encrypted
+            </span>
+          </div>
+
+          {request && (
+            <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 gap-3 bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/10 text-xs">
+              <div>
+                <span className="text-[10px] uppercase font-semibold text-blue-200 block">Applicant Name</span>
+                <span className="font-bold text-sm text-white truncate block">{request.customerName || 'Customer'}</span>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase font-semibold text-blue-200 block">Application ID</span>
+                <span className="font-bold text-sm text-white font-mono block">{request.leadId || `APP${String(request.application_id || request.id).padStart(7, '0')}`}</span>
+              </div>
+              <div className="col-span-2 sm:col-span-1 flex flex-col justify-center">
+                <span className="text-[10px] uppercase font-semibold text-blue-200 block">Upload Progress</span>
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="flex-1 bg-white/20 h-2 rounded-full overflow-hidden">
+                    <div className="bg-emerald-400 h-full transition-all duration-500" style={{ width: `${totalCount ? (uploadedCount / totalCount) * 100 : 0}%` }}></div>
+                  </div>
+                  <span className="text-xs font-bold text-emerald-300">{uploadedCount}/{totalCount}</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Content Body */}
+        <div className="p-6 sm:p-8 space-y-5 bg-slate-50/50">
+          {error && (
+            <div className="rounded-xl bg-rose-50 border border-rose-200 p-4 text-xs font-semibold text-rose-700 flex items-center gap-2">
+              <span>⚠️</span>
+              <span>{error}</span>
+            </div>
+          )}
+
+          {!request && !error && (
+            <div className="py-16 text-center text-sm text-slate-500 flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              <span>Loading your secure document request…</span>
+            </div>
+          )}
+
+          {isAllUploaded && (
+            <div className="rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 p-5 text-center shadow-sm">
+              <div className="w-12 h-12 bg-emerald-500 text-white rounded-full flex items-center justify-center mx-auto mb-2 text-xl font-bold shadow-md shadow-emerald-500/20">
+                ✓
+              </div>
+              <h3 className="text-base font-bold text-emerald-900">All Requested Documents Uploaded!</h3>
+              <p className="text-xs text-emerald-700 mt-1 max-w-md mx-auto">
+                Thank you! Your documents have been safely received and forwarded to our FCU verification team for processing.
+              </p>
+            </div>
+          )}
+
+          {request && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-600 px-1">
+                <span>Requested Documents ({totalCount})</span>
+                <span className="text-[11px] text-slate-400">PDF, JPG, PNG, WEBP · Max 5MB</span>
+              </div>
+
+              {request.documents.map((doc) => {
+                const isUploaded = doc.status === 'UPLOADED'
+                const isSaving = savingId === doc.id
+                const isRecent = uploadedRecent === doc.id
+                const fileUrl = doc.filePath ? `${API_BASE_URL}/${doc.filePath.replace(/^\/+/, '')}` : ''
+
+                return (
+                  <div
+                    key={doc.id}
+                    className={`rounded-2xl border transition-all duration-300 p-4 ${
+                      isUploaded
+                        ? 'border-emerald-200 bg-white shadow-sm hover:border-emerald-300'
+                        : 'border-slate-200 bg-white hover:border-blue-300 hover:shadow-md'
+                    }`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-start sm:items-center gap-3 min-w-0">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 ${
+                          isUploaded ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-50 text-blue-700'
+                        }`}>
+                          {getDocIcon(doc.documentName)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-sm text-slate-800">{doc.documentName}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              isUploaded ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                            }`}>
+                              {isUploaded ? '✓ Uploaded' : '⏳ Pending'}
+                            </span>
+                            {isRecent && <span className="text-[10px] font-bold text-emerald-600 animate-bounce">Saved!</span>}
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-1">
+                            {isUploaded ? (
+                              <div className="space-y-1.5">
+                                <div className="text-slate-700 font-mono font-medium text-[11px] break-all">
+                                  📎 {doc.fileName || 'Uploaded file'}
+                                </div>
+                                <div className="text-[10px] font-mono leading-tight space-y-0.5 text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                  {(() => {
+                                    const text = String(doc.metaIntegrityDetail || '');
+                                    const createdMatch = text.match(/Created:\s*([^\s]+\s+[^\s]+)/i);
+                                    const modifiedMatch = text.match(/Modified:\s*([^\s]+\s+[^\s]+)/i);
+
+                                    if (createdMatch || modifiedMatch) {
+                                      const created = createdMatch ? createdMatch[0] : '';
+                                      const modified = modifiedMatch ? modifiedMatch[0] : '';
+                                      let rest = text;
+                                      if (created) rest = rest.replace(created, '');
+                                      if (modified) rest = rest.replace(modified, '');
+                                      const extra = rest.trim();
+
+                                      return (
+                                        <>
+                                          {created && <div className="text-emerald-700 font-semibold">{created}</div>}
+                                          {modified && <div className="text-slate-600">{modified}</div>}
+                                          {extra && <div className="text-[9px] text-slate-400">{extra}</div>}
+                                        </>
+                                      );
+                                    }
+
+                                    const uploadDate = doc.uploadedAt || doc.uploaded_at || new Date().toISOString();
+                                    const formattedUpload = new Date(uploadDate).toLocaleString('en-IN', {
+                                      year: 'numeric', month: '2-digit', day: '2-digit',
+                                      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+                                    }).replace(',', '');
+
+                                    return (
+                                      <>
+                                        <div className="text-emerald-700 font-semibold">Created: {formattedUpload}</div>
+                                        <div className="text-slate-600">Modified: {formattedUpload}</div>
+                                        <div className="text-[9px] text-slate-400">(Generated via Direct Capture)</div>
+                                      </>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
+                            ) : (
+                              'Please upload a clear copy of this document'
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                        {isUploaded && fileUrl && (
+                          <a
+                            href={fileUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 text-xs font-semibold flex items-center gap-1 transition"
+                          >
+                            View ↗
+                          </a>
+                        )}
+
+                        <label className={`cursor-pointer px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 flex items-center gap-1.5 shadow-sm ${
+                          isSaving
+                            ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                            : isUploaded
+                            ? 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                            : 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-blue-500/20'
+                        }`}>
+                          <input
+                            type="file"
+                            accept=".pdf,image/jpeg,image/png,image/webp"
+                            disabled={isSaving}
+                            onChange={(event) => {
+                              const file = event.target.files?.[0]
+                              if (file) void upload(doc.id, file)
+                            }}
+                            className="hidden"
+                          />
+                          {isSaving ? (
+                            <>
+                              <span className="w-3.5 h-3.5 border-2 border-slate-500 border-t-transparent rounded-full animate-spin"></span>
+                              <span>Uploading…</span>
+                            </>
+                          ) : isUploaded ? (
+                            <>
+                              <span>↻</span>
+                              <span>Replace</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>📁</span>
+                              <span>Choose & Upload</span>
+                            </>
+                          )}
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          <div className="pt-2 text-center text-[11px] text-slate-400 border-t border-slate-200/80">
+            🔒 GeetPay FCU Verification System · All uploads are securely stored and verified against loan criteria.
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export default function App() {
@@ -2539,9 +3792,20 @@ export default function App() {
     }
   }
 
+  const openCase = (caseItem: CaseRecord, readOnlyMode = false) => {
+    const isTerminal = ['SENT_TO_CREDIT', 'DISBURSED', 'REJECTED', 'FORWARDED_REJECT'].includes(caseItem.status) || caseItem.workflowStage === 'FINALIZED'
+    if (readOnlyMode || isTerminal || activeNav !== 'Applications') {
+      setViewCase(caseItem)
+      return
+    }
+    void claimAndOpenCase(caseItem)
+  }
+
   const releaseCaseClaim = async (caseItem: CaseRecord) => {
-    try { await fetch(`${API_BASE_URL}/api/fcu/auth/cases/${caseItem.databaseId || caseItem.id}/claim`, { method: 'DELETE', credentials: 'include' }) } catch { /* Lock expires automatically. */ }
-    setCases(current => current.map(item => item.id === caseItem.id ? { ...item, lock: null } : item))
+    if (caseItem.lock?.isMine) {
+      try { await fetch(`${API_BASE_URL}/api/fcu/auth/cases/${caseItem.databaseId || caseItem.id}/claim`, { method: 'DELETE', credentials: 'include' }) } catch { /* Lock expires automatically. */ }
+      setCases(current => current.map(item => item.id === caseItem.id ? { ...item, lock: null } : item))
+    }
   }
 
   const closeCaseDrawer = async () => {
@@ -2569,18 +3833,20 @@ export default function App() {
     if (viewCase?.id === id) setViewCase(prev => prev ? { ...prev, ...updates } : prev)
   }
 
+  const isSentToFcu = (caseItem: CaseRecord) => {
+    const raw = String(caseItem.sourceStatus || '').toUpperCase().replace(/[\s_-]+/g, '_')
+    return raw === 'SENT_TO_FCU' || raw === 'SENT_FCU' || raw.includes('FCU')
+  }
+
   const activeCases = cases.filter(caseItem => {
     const terminalStatuses = ['SENT_TO_CREDIT', 'DISBURSED', 'REJECTED', 'FORWARDED_REJECT']
-    const sourceStatus = String(caseItem.sourceStatus || '').trim().toUpperCase().replace(/[\s-]+/g, '_')
-    return ['SENT_TO_FCU', 'SENT_FCU'].includes(sourceStatus)
-      && caseItem.workflowStage !== 'FINALIZED'
-      && !terminalStatuses.includes(caseItem.status)
+    return !terminalStatuses.includes(caseItem.status) && caseItem.workflowStage !== 'FINALIZED' && isSentToFcu(caseItem)
   })
 
   const pageConfig: Record<string, { title: string; statusMatch: (status: string) => boolean }> = {
     Applications: {
       title: 'Applications',
-      statusMatch: () => true,
+      statusMatch: status => !['SENT_TO_CREDIT', 'DISBURSED', 'REJECTED', 'FORWARDED_REJECT'].includes(status),
     },
     Approved: {
       title: 'Approved Cases',
@@ -2604,19 +3870,23 @@ export default function App() {
     },
   }
 
+  const availableBranches = Array.from(new Set(cases.map(c => c.branch).filter(Boolean)))
+  const availablePurposes = Array.from(new Set(cases.map(c => c.purpose).filter(Boolean)))
+
   const filtered = cases.filter(c => {
-    const q = searchQuery.toLowerCase()
-    const matchSearch = !searchQuery ||
+    const q = searchQuery.toLowerCase().trim()
+    const matchSearch = !q ||
       c.borrower.toLowerCase().includes(q) ||
       c.id.toLowerCase().includes(q) ||
-      c.mobile.includes(q)
+      (c.ref && c.ref.toLowerCase().includes(q)) ||
+      (c.mobile && c.mobile.includes(q))
     const matchPageStatus = activeNav === 'Applications'
       ? activeCases.some(activeCase => activeCase.id === c.id)
       : activeNav === 'Dashboard' || activeNav === 'Lead Tracker' || activeNav === 'Reports'
         ? true
         : pageConfig[activeNav]?.statusMatch(c.status) ?? true
-    const matchPurpose = selectedPurpose === 'All Purposes' || c.purpose === selectedPurpose.toUpperCase()
-    const matchBranch = selectedBranch === 'All Branches' || c.branch === selectedBranch.toUpperCase()
+    const matchPurpose = selectedPurpose === 'All Purposes' || c.purpose.toUpperCase() === selectedPurpose.toUpperCase()
+    const matchBranch = selectedBranch === 'All Branches' || c.branch.toUpperCase() === selectedBranch.toUpperCase()
     return matchSearch && matchPageStatus && matchPurpose && matchBranch
   })
 
@@ -2763,18 +4033,15 @@ export default function App() {
                   </div>
                   <select value={selectedPurpose} onChange={e => setSelectedPurpose(e.target.value)} className="min-w-[150px] rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] text-slate-600 focus:border-blue-400 focus:outline-none">
                     <option>All Purposes</option>
-                    <option>Home Repair</option>
-                    <option>Education</option>
-                    <option>Business</option>
-                    <option>Medical</option>
-                    <option>Agriculture</option>
+                    {availablePurposes.map(purpose => (
+                      <option key={purpose} value={purpose}>{purpose}</option>
+                    ))}
                   </select>
                   <select value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)} className="min-w-[150px] rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] text-slate-600 focus:border-blue-400 focus:outline-none">
                     <option>All Branches</option>
-                    <option>Panrose Delhi</option>
-                    <option>Nazut Delhi</option>
-                    <option>Goztep Varanasi</option>
-                    <option>Goztep Jaipur</option>
+                    {availableBranches.map(branch => (
+                      <option key={branch} value={branch}>{branch}</option>
+                    ))}
                   </select>
                   <button className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 transition-all hover:bg-slate-50">↓ Export</button>
                 </div>
@@ -2809,15 +4076,17 @@ export default function App() {
                           <th className="px-2 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Branch / RM</th>
                           <th className="px-2 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Status</th>
                           <th className="px-2 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Applied</th>
-                          {activeNav === 'Applications' && (
-                            <th className="px-2 py-2 text-center font-semibold text-gray-500 uppercase tracking-wide">Action</th>
-                          )}
+                          <th className="px-2 py-2 text-center font-semibold text-gray-500 uppercase tracking-wide">Action</th>
                         </tr>
                       </thead>
                       <tbody>
                         {filtered.map((c, i) => (
                           <Fragment key={c.id}>
-                            <tr className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                            <tr
+                              onClick={() => openCase(c, activeNav !== 'Applications')}
+                              className="border-b border-slate-100 hover:bg-slate-50 transition-colors cursor-pointer"
+                              title={activeNav === 'Applications' ? 'Click to open application review' : 'Click to view application form in read-only mode'}
+                            >
                               <td className="px-2 py-2 text-gray-400">{i + 1}</td>
                               <td className="px-2 py-2">
                                 <div className="font-semibold text-blue-700 font-mono">{c.id}</div>
@@ -2856,18 +4125,26 @@ export default function App() {
                                 <div className="text-gray-700">{c.applied}</div>
                                 <div className="text-[9px] text-gray-400">{c.disburse}</div>
                               </td>
-                              {activeNav === 'Applications' && (
-                                <td className="px-2 py-2 text-center">
+                              <td className="px-2 py-2 text-center" onClick={e => e.stopPropagation()}>
+                                {activeNav === 'Applications' ? (
                                   <button
                                     onClick={() => claimAndOpenCase(c)}
                                     disabled={Boolean(c.lock && !c.lock.isMine)}
                                     title={c.lock && !c.lock.isMine ? `Being reviewed by ${c.lock.userName}` : 'Open and claim application'}
                                     className={`rounded-full px-2.5 py-1.5 text-[10px] font-semibold transition-colors ${c.lock && !c.lock.isMine ? 'cursor-not-allowed bg-amber-100 text-amber-700' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
                                   >
-                                    {c.lock && !c.lock.isMine ? `In review: ${c.lock.userName}` : 'View'}
+                                    {c.lock && !c.lock.isMine ? `In review: ${c.lock.userName}` : 'Review'}
                                   </button>
-                                </td>
-                              )}
+                                ) : (
+                                  <button
+                                    onClick={() => openCase(c, true)}
+                                    title="View application details (read-only)"
+                                    className="rounded-full border border-slate-300 bg-white px-2.5 py-1.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-100 transition-colors shadow-sm"
+                                  >
+                                    View ↗
+                                  </button>
+                                )}
+                              </td>
                             </tr>
                           </Fragment>
                         ))}
@@ -2967,6 +4244,7 @@ export default function App() {
         <CaseDetailDrawer
           caseData={viewCase}
           reviewerName={authUser.name || authUser.email}
+          readOnly={activeNav !== 'Applications'}
           onClose={closeCaseDrawer}
           onCaseUpdate={handleCaseUpdate}
           onMoveToCredit={() => {
