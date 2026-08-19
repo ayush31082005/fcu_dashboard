@@ -7,7 +7,8 @@ exports.requireFcuAuth = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const requireFcuAuth = (req, res, next) => {
     try {
-        const token = req.cookies.fcu_token;
+        const authHeader = req.headers.authorization;
+        const token = req.cookies?.fcu_token || (authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : (authHeader || ''));
         if (!token) {
             res.status(401).json({ status: 'error', message: 'Authentication required' });
             return;

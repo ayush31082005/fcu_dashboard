@@ -20,10 +20,10 @@ const searchCkyc = async (req, res) => {
             res.status(400).json({ status: 'error', message: 'A valid PAN is required for CKYC search' });
             return;
         }
-        const apiId = process.env['ckyc-search-api-id'];
-        const apiKey = process.env['ckyc-search-api-key'];
-        const tokenId = process.env['ckyc-search-token-id'];
-        const apiUrl = process.env['ckyc-search-api-url'] || 'https://javabackend.idspay.in/api/v1/prod/ckyc/search';
+        const apiId = process.env.ckyc_search_api_id;
+        const apiKey = process.env.ckyc_search_api_key;
+        const tokenId = process.env.ckyc_search_token_id;
+        const apiUrl = process.env.ckyc_search_api_url || 'https://javabackend.idspay.in/api/v1/prod/ckyc/search';
         if (!apiId || !apiKey || !tokenId) {
             res.status(503).json({
                 status: 'error',

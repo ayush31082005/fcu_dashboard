@@ -21,12 +21,20 @@ const verifyPassword = (password, storedHash) => {
     const saved = Buffer.from(savedHash, 'hex');
     return candidate.length === saved.length && crypto_1.default.timingSafeEqual(candidate, saved);
 };
-const cookieOptions = {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    maxAge: 8 * 60 * 60 * 1000,
+const isProduction = process.env.NODE_ENV === 'production';
+const getCookieSameSite = () => {
+    const custom = (process.env.COOKIE_SAME_SITE || '').toLowerCase().trim();
+    if (custom === 'none' || custom === 'lax' || custom === 'strict') {
+        return custom;
+    }
+    return isProduction ? 'none' : 'lax';
 };
+const getCookieOptions = () => ({
+    httpOnly: true,
+    secure: isProduction || process.env.COOKIE_SECURE === 'true',
+    sameSite: getCookieSameSite(),
+    maxAge: 8 * 60 * 60 * 1000,
+});
 const register = async (req, res) => {
     try {
         const { name, email, password, role = 'FCU Officer' } = req.body;
@@ -65,7 +73,7 @@ const login = async (req, res) => {
             return;
         }
         const token = jsonwebtoken_1.default.sign({ id: user.id, name: user.name, email: user.email, role: user.role, type: 'fcu' }, JWT_SECRET, { expiresIn: '8h' });
-        res.cookie(COOKIE_NAME, token, cookieOptions);
+        res.cookie(COOKIE_NAME, token, getCookieOptions());
         await (0, authModel_1.updateLastLogin)(user.id);
         await (0, authModel_1.recordFcuActivity)(user.id, 'login', String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'Unknown').split(',')[0].trim(), String(req.headers['user-agent'] || 'Unknown'));
         res.json({
@@ -91,7 +99,7 @@ const logout = async (req, res) => {
     if (currentUser) {
         await (0, authModel_1.recordFcuActivity)(currentUser.id, 'logout', String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'Unknown').split(',')[0].trim(), String(req.headers['user-agent'] || 'Unknown'));
     }
-    res.clearCookie(COOKIE_NAME, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict' });
+    res.clearCookie(COOKIE_NAME, getCookieOptions());
     res.json({ status: 'success', message: 'Logged out successfully' });
 };
 exports.logout = logout;

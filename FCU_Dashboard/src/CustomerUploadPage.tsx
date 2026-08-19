@@ -4,6 +4,7 @@ import { Nav } from "@/components/ui/nav";
 import { Footer } from "@/components/ui/footer";
 import axios from "axios";
 import { Upload, CheckCircle, FileText, AlertCircle, Loader2 } from "lucide-react";
+import { API_BASE_URL } from "./LoginPage";
 
 interface RequestedDoc {
   id?: string;
@@ -23,7 +24,7 @@ export default function CustomerUploadPage() {
   useEffect(() => {
     const fetchLinkDetails = async () => {
       try {
-        const res = await axios.get(`http://localhost:5000/api/public/customer-upload/${leadId}/${shareId}`);
+        const res = await axios.get(`${API_BASE_URL}/api/public/customer-upload/${leadId}/${shareId}`);
         if (res.data.status === 'success') {
           setDocs(res.data.data.requestedDocs);
           setCustomerInfo({ name: res.data.data.customerName, id: res.data.data.customerId });
@@ -49,7 +50,7 @@ export default function CustomerUploadPage() {
     if (missingDocId) formData.append('missingDocId', missingDocId);
 
     try {
-      const res = await axios.post(`http://localhost:5000/api/public/customer-upload/${leadId}/${shareId}/upload`, formData, {
+      const res = await axios.post(`${API_BASE_URL}/api/public/customer-upload/${leadId}/${shareId}/upload`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 

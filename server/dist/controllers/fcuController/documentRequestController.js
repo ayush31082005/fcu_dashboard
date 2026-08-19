@@ -5,8 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.uploadCustomerDocument = exports.getCustomerDocumentRequest = exports.shareDocumentRequest = exports.createDocumentRequest = exports.getDocumentRequest = void 0;
 const crypto_1 = __importDefault(require("crypto"));
-const fs_1 = __importDefault(require("fs"));
-const path_1 = __importDefault(require("path"));
+const cloudinary_1 = require("../../config/cloudinary");
 const authModel_1 = require("../../models/fcuModels/authModel");
 const documentRequestModel_1 = require("../../models/fcuModels/documentRequestModel");
 const whatsapp_1 = require("../../utils/whatsapp");
@@ -135,14 +134,13 @@ const uploadCustomerDocument = async (req, res) => {
             res.status(410).json({ status: 'error', message: 'Document request is invalid or expired' });
             return;
         }
-        const uploadsDir = path_1.default.join(__dirname, '../../../uploads/fcu_customer_docs');
-        fs_1.default.mkdirSync(uploadsDir, { recursive: true });
         const savedName = `${token.slice(0, 10)}_${documentId}_${Date.now()}_${originalName}`;
-        fs_1.default.writeFileSync(path_1.default.join(uploadsDir, savedName), buffer);
-        const relativePath = `uploads/fcu_customer_docs/${savedName}`;
-        const saved = await (0, documentRequestModel_1.saveRequestedDocumentUpload)(token, documentId, originalName, relativePath);
+        // Convert base64 buffer to data URI for Cloudinary
+        const mimeType = match[1];
+        const dataUri = `data:${mimeType};base64,${match[2]}`;
+        const cloudinaryUrl = await (0, cloudinary_1.uploadToCloudinary)(dataUri, 'fcu_customer_docs', savedName);
+        const saved = await (0, documentRequestModel_1.saveRequestedDocumentUpload)(token, documentId, originalName, cloudinaryUrl);
         if (!saved) {
-            fs_1.default.unlinkSync(path_1.default.join(uploadsDir, savedName));
             res.status(404).json({ status: 'error', message: 'Requested document not found' });
             return;
         }

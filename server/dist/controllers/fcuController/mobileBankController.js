@@ -19,12 +19,12 @@ const lookupMobileBank = async (req, res) => {
             res.status(400).json({ status: 'error', message: 'A valid 10-digit customer mobile number is required' });
             return;
         }
-        const apiId = process.env['mobile-to-bank-api-id'];
-        const apiKey = process.env['mobile-to-bank-api-key'];
-        const tokenId = process.env['mobile-to-bank-token-id'];
-        const apiUrl = process.env['mobile-to-bank-api-url']
+        const apiId = process.env.mobile_to_bank_api_id;
+        const apiKey = process.env.mobile_to_bank_api_key;
+        const tokenId = process.env.mobile_to_bank_token_id;
+        const apiUrl = process.env.mobile_to_bank_api_url
             || 'https://javabackend.idspay.in/api/v1/prod/srv3/mobile-to-bank/advance';
-        const configuredTimeout = Number(process.env['mobile-to-bank-timeout-ms']);
+        const configuredTimeout = Number(process.env.mobile_to_bank_timeout_ms);
         const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout >= 10_000
             ? configuredTimeout : 90_000;
         if (!apiId || !apiKey || !tokenId) {

@@ -12,68 +12,144 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 import path from 'path';
-
-const sharedFieldUploadDirectory = process.env.FIELD_VERIFICATION_UPLOAD_DIR
-  || path.resolve(__dirname, '../../../mobile app/server/uploads/field-verification');
-app.use('/uploads/field-verification', express.static(sharedFieldUploadDirectory));
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
-
-app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:8443', 'https://geetpay.com', 'https://fcu-dashboard-ehsj.vercel.app'],
-  credentials: true
-}));
-app.use(helmet({ crossOriginResourcePolicy: false }));
-app.use(express.json({ limit: '7mb' }));
-app.use(cookieParser());
-
 import authRoutes from './routes/authRoutes';
 import enrichmentRoutes from './routes/enrichmentRoutes';
 import onboardingRoutes from './routes/onboardingRoutes';
 import telecallerRoutes from './telecaller/routes';
 import fcuRoutes from './routes/fcuRoutes/fcuRoutes';
-app.use('/api/auth', authRoutes);
-app.use('/api/enrichment', enrichmentRoutes);
-app.use('/api/onboarding', onboardingRoutes);
-app.use('/api/telecaller', telecallerRoutes);
-app.use('/api/fcu/auth', fcuRoutes);
 
-// Field-app reports store image bytes in MySQL and keep this URL in report_data.
-// Serve the UUID-backed image here as well so the FCU dashboard can render it.
-app.get('/api/field/auth/images/:id', async (req, res) => {
-  const imageId = String(req.params.id || '').trim();
-  if (!/^[0-9a-f-]{36}$/i.test(imageId)) {
-    return res.status(400).json({ status: 'error', message: 'Invalid image id' });
+app.set('trust proxy', 1);
+
+// Load Client/Frontend URLs from .env (comma-separated or single)
+const configuredClientUrls = (process.env.CLIENT_URL || process.env.FRONTEND_URL || '')
+  .split(',')
+  .map(url => url.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
+const defaultAllowedOrigins = [
+  'http://localhost:8443',
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:5000',
+  'http://127.0.0.1:8443',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:5000',
+  'https://geetpay.in',
+  'http://geetpay.in',
+  'https://www.geetpay.in',
+  'http://www.geetpay.in',
+  'https://fcu-dashboard-fcuserver.vercel.app',
+];
+
+const allowedOrigins = Array.from(new Set([...configuredClientUrls, ...defaultAllowedOrigins]));
+
+const isOriginAllowed = (origin: string | undefined): boolean => {
+  if (!origin) return true; // Allow server-to-server or non-browser requests
+  const normalized = origin.replace(/\/+$/, '');
+  return allowedOrigins.includes(normalized) ||
+    allowedOrigins.some(allowed => allowed === '*' || normalized.endsWith(`.${allowed.replace(/^https?:\/\//, '')}`));
+};
+
+// Universal CORS & Preflight middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    if (isOriginAllowed(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie, Set-Cookie');
+    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie, Authorization');
   }
 
-  try {
-    const [rows]: any = await pool.query(
-      'SELECT mime_type, image_data FROM field_verification_uploads WHERE id = ? LIMIT 1',
-      [imageId],
-    );
-    const image = rows[0];
-    if (!image?.image_data) {
-      return res.status(404).json({ status: 'error', message: 'Image not found' });
+  // Instant response for preflight OPTIONS checks
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
+
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    if (isOriginAllowed(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, true);
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cookie', 'Set-Cookie'],
+  exposedHeaders: ['Set-Cookie', 'Authorization']
+};
+
+app.use(cors(corsOptions));
+app.use(helmet({ crossOriginResourcePolicy: false, crossOriginEmbedderPolicy: false }));
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+app.use(cookieParser());
+
+const sharedFieldUploadDirectory = process.env.FIELD_VERIFICATION_UPLOAD_DIR
+  || path.resolve(__dirname, '../../../mobile app/server/uploads/field-verification');
+
+// Support standard routes and /FCU subpath routes on cPanel
+const prefixes = ['', '/FCU', '/fcu'];
+prefixes.forEach(prefix => {
+  app.use(`${prefix}/uploads/field-verification`, express.static(sharedFieldUploadDirectory));
+  app.use(`${prefix}/uploads`, express.static(path.join(__dirname, '../uploads')));
+  app.use(`${prefix}/api/auth`, authRoutes);
+  app.use(`${prefix}/api/enrichment`, enrichmentRoutes);
+  app.use(`${prefix}/api/onboarding`, onboardingRoutes);
+  app.use(`${prefix}/api/telecaller`, telecallerRoutes);
+  app.use(`${prefix}/api/fcu/auth`, fcuRoutes);
+
+  app.get(`${prefix}/api/field/auth/images/:id`, async (req, res) => {
+    const imageId = String(req.params.id || '').trim();
+    if (!/^[0-9a-f-]{36}$/i.test(imageId)) {
+      return res.status(400).json({ status: 'error', message: 'Invalid image id' });
     }
 
-    res.setHeader('Content-Type', image.mime_type || 'image/jpeg');
-    res.setHeader('Cache-Control', 'private, max-age=3600');
-    return res.send(image.image_data);
-  } catch (error: any) {
-    console.error('Field verification image error:', error?.message || error);
-    return res.status(500).json({ status: 'error', message: 'Unable to load image' });
+    try {
+      const [rows]: any = await pool.query(
+        'SELECT mime_type, image_data FROM field_verification_uploads WHERE id = ? LIMIT 1',
+        [imageId],
+      );
+      const image = rows[0];
+      if (!image?.image_data) {
+        return res.status(404).json({ status: 'error', message: 'Image not found' });
+      }
+
+      res.setHeader('Content-Type', image.mime_type || 'image/jpeg');
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      return res.send(image.image_data);
+    } catch (error: any) {
+      console.error('Field verification image error:', error?.message || error);
+      return res.status(500).json({ status: 'error', message: 'Unable to load image' });
+    }
+  });
+
+  app.get(`${prefix}/api/health`, async (req, res) => {
+    try {
+      await pool.query('SELECT 1');
+      res.status(200).json({ status: 'success', message: 'API is running & DB is connected' });
+    } catch (error) {
+      res.status(500).json({ status: 'error', message: 'Database connection failed' });
+    }
+  });
+
+  app.get(`${prefix}/`, (req, res) => {
+    res.json({ status: 'success', message: 'FCU Backend Server is Live' });
+  });
+  if (prefix) {
+    app.get(`${prefix}`, (req, res) => {
+      res.json({ status: 'success', message: 'FCU Backend Server is Live' });
+    });
   }
 });
 
-app.get('/api/health', async (req, res) => {
-  try {
-    await pool.query('SELECT 1');
-    res.status(200).json({ status: 'success', message: 'API is running & DB is connected' });
-  } catch (error) {
-    res.status(500).json({ status: 'error', message: 'Database connection failed' });
-  }
-});
-
-const startServer = async () => {
+const initDatabase = async () => {
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS fcu_users (
@@ -409,22 +485,34 @@ const startServer = async () => {
       LEFT JOIN browser_info bi ON bi.id = (SELECT bi2.id FROM browser_info bi2 WHERE bi2.user_id = u.id ORDER BY bi2.id DESC LIMIT 1)
     `);
     console.log('FCU authentication and workflow tables are ready.');
-    const server = app.listen(port, () => {
-      console.log(`Server is running on port ${port}`);
-    });
-    server.on('error', (error: NodeJS.ErrnoException) => {
-      console.error('HTTP server error:', { code: error.code, message: error.message });
-    });
-    // Keep an explicit listener reference so development runners do not consider
-    // startup complete and terminate while the API is still expected to serve.
-    process.once('SIGINT', () => server.close(() => process.exit(0)));
-    process.once('SIGTERM', () => server.close(() => process.exit(0)));
   } catch (error: any) {
-    console.error('Server startup failed because the database schema could not be prepared:', {
+    console.warn('Database initialization warning (server will still respond):', {
       code: error?.code,
       message: error?.message || String(error),
     });
-    process.exit(1);
+  }
+};
+
+const startServer = () => {
+  try {
+    const listenTarget = typeof (global as any).PhusionPassenger !== 'undefined'
+      ? 'passenger'
+      : (process.env.PORT || 5000);
+
+    const server = app.listen(listenTarget, () => {
+      console.log(`FCU Server is running on ${listenTarget}`);
+      // Asynchronously prepare DB tables without blocking the web listener
+      initDatabase().catch(err => console.warn('Background DB init error:', err?.message || err));
+    });
+
+    server.on('error', (error: NodeJS.ErrnoException) => {
+      console.warn('HTTP server warning (handled):', { code: error.code, message: error.message });
+    });
+
+    process.once('SIGINT', () => server.close(() => process.exit(0)));
+    process.once('SIGTERM', () => server.close(() => process.exit(0)));
+  } catch (error: any) {
+    console.warn('Server startup warning (handled):', error?.message || error);
   }
 };
 
@@ -432,7 +520,7 @@ if (process.env.VERCEL !== '1') {
   startServer();
 }
 
-// Export app for Vercel serverless deployment
+// Export app for cPanel Passenger and Vercel serverless deployment
 export default app;
 module.exports = app;
 

@@ -3,7 +3,8 @@ import jwt from 'jsonwebtoken';
 
 export const requireFcuAuth = (req: Request, res: Response, next: NextFunction): void => {
   try {
-    const token = req.cookies.fcu_token;
+    const authHeader = req.headers.authorization;
+    const token = req.cookies?.fcu_token || (authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : (authHeader || ''));
     if (!token) {
       res.status(401).json({ status: 'error', message: 'Authentication required' });
       return;

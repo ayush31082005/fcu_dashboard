@@ -19,12 +19,21 @@ const verifyPassword = (password: string, storedHash: string) => {
   return candidate.length === saved.length && crypto.timingSafeEqual(candidate, saved);
 };
 
-const cookieOptions = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict' as const,
-  maxAge: 8 * 60 * 60 * 1000,
+const isProduction = process.env.NODE_ENV === 'production';
+const getCookieSameSite = (): 'none' | 'lax' | 'strict' => {
+  const custom = (process.env.COOKIE_SAME_SITE || '').toLowerCase().trim();
+  if (custom === 'none' || custom === 'lax' || custom === 'strict') {
+    return custom as 'none' | 'lax' | 'strict';
+  }
+  return isProduction ? 'none' : 'lax';
 };
+
+const getCookieOptions = () => ({
+  httpOnly: true,
+  secure: isProduction || process.env.COOKIE_SECURE === 'true',
+  sameSite: getCookieSameSite(),
+  maxAge: 8 * 60 * 60 * 1000,
+});
 
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -75,7 +84,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       JWT_SECRET,
       { expiresIn: '8h' }
     );
-    res.cookie(COOKIE_NAME, token, cookieOptions);
+    res.cookie(COOKIE_NAME, token, getCookieOptions());
     await updateLastLogin(user.id);
     await recordFcuActivity(
       user.id,
@@ -110,6 +119,6 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
       String(req.headers['user-agent'] || 'Unknown')
     );
   }
-  res.clearCookie(COOKIE_NAME, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict' });
+  res.clearCookie(COOKIE_NAME, getCookieOptions());
   res.json({ status: 'success', message: 'Logged out successfully' });
 };

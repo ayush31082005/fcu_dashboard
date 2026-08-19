@@ -7,7 +7,7 @@ export interface FcuUser {
   role: string
 }
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app') ? 'https://fcu-dashboard-fcuserver.vercel.app' : 'http://localhost:5000')
+export const API_BASE_URL = (import.meta.env.VITE_API_URL !== undefined ? String(import.meta.env.VITE_API_URL) : 'https://geetpay.in/FCU').trim().replace(/\/+$/, '')
 
 export default function LoginPage({ onLogin }: { onLogin: (user: FcuUser) => void }) {
   const [email, setEmail] = useState('')

@@ -5,8 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getDashboardData = exports.getUserData = exports.saveMetadata = exports.uploadSelfie = exports.saveAadhaarDetails = exports.saveReferenceDetails = exports.saveBankDetails = exports.saveEmploymentDetails = exports.savePersonalDetails = exports.saveBasicDetails = void 0;
 const db_1 = __importDefault(require("../config/db"));
-const fs_1 = __importDefault(require("fs"));
-const path_1 = __importDefault(require("path"));
+const cloudinary_1 = require("../config/cloudinary");
 const saveBasicDetails = async (req, res) => {
     try {
         const { userId, employment, salary, loanAmount, purpose, runningLoan, email, officialEmail } = req.body;
@@ -218,23 +217,14 @@ const uploadSelfie = async (req, res) => {
             res.status(400).json({ status: 'error', message: 'userId and imageBase64 are required' });
             return;
         }
-        // Strip prefix if present (e.g. data:image/jpeg;base64,)
-        const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-        const buffer = Buffer.from(base64Data, 'base64');
-        const uploadsDir = path_1.default.join(__dirname, '../../uploads/selfies');
-        if (!fs_1.default.existsSync(uploadsDir)) {
-            fs_1.default.mkdirSync(uploadsDir, { recursive: true });
-        }
-        const fileName = `selfie_${userId}_${Date.now()}.jpg`;
-        const filePath = path_1.default.join(uploadsDir, fileName);
-        fs_1.default.writeFileSync(filePath, buffer);
-        const relativePath = `uploads/selfies/${fileName}`;
+        const dataUri = imageBase64.startsWith('data:') ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`;
+        const cloudinaryUrl = await (0, cloudinary_1.uploadToCloudinary)(dataUri, 'selfies', `selfie_${userId}_${Date.now()}`);
         const query = `
       INSERT INTO kyc_documents (user_id, selfie_path) 
       VALUES (?, ?)
     `;
-        await db_1.default.query(query, [userId, relativePath]);
-        res.status(200).json({ status: 'success', message: 'Selfie uploaded successfully', path: relativePath });
+        await db_1.default.query(query, [userId, cloudinaryUrl]);
+        res.status(200).json({ status: 'success', message: 'Selfie uploaded successfully', path: cloudinaryUrl });
     }
     catch (error) {
         console.error('uploadSelfie error:', error);
