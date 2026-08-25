@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getCaseHistory = exports.addCaseHistory = exports.userOwnsCase = exports.releaseCase = exports.heartbeatCase = exports.claimCase = exports.assignCaseToFieldVerification = exports.saveWorkflowAction = exports.updateEkycReview = exports.getWorkflow = exports.getDocumentReviewSummary = exports.reviewAllDocuments = exports.updateDocumentReview = exports.findAllCases = void 0;
 const db_1 = __importDefault(require("../../config/db"));
 const dbQuery_1 = require("../../config/dbQuery");
+const documentStorage_1 = require("../../config/documentStorage");
 const normalizeStatus = (value) => {
     const status = String(value || 'pending').trim().toUpperCase().replace(/[\s-]+/g, '_');
     const aliases = {
@@ -31,6 +32,14 @@ const findAllCases = async () => {
         a.updated_at AS application_updated_at,
         DATE_FORMAT(a.created_at, '%d %b %Y') AS applied_on,
         DATE_FORMAT(a.updated_at, '%d %b %Y') AS updated_on,
+        ld.status AS lead_status,
+        rl.id AS rejected_loan_id,
+        rl.rejection_reasons AS rejected_reasons,
+        rl.remarks AS rejected_remarks,
+        rl.fraud_status AS rejected_fraud_status,
+        rl.updated_by AS rejected_by_user,
+        la.id AS loan_account_id,
+        la.disbursed_on AS loan_disbursed_on,
         u.lead_number,
         u.lead_reference_number,
         u.application_number,
@@ -191,6 +200,7 @@ const findAllCases = async () => {
         )) FROM references_details rd WHERE rd.user_id = u.id) AS reference_data
       FROM applications a
       INNER JOIN users u ON u.id = a.user_id
+      LEFT JOIN leads ld ON (ld.user_id = u.id OR ld.lead_id = u.lead_number OR ld.lead_id = u.lead_reference_number)
       LEFT JOIN user_profiles up ON up.user_id = u.id
       LEFT JOIN employment_details ed ON ed.user_id = u.id
       LEFT JOIN fcu_corporate_email_verifications cev ON cev.application_id = a.id AND cev.email = LOWER(TRIM(ed.official_email))
@@ -216,40 +226,46 @@ const findAllCases = async () => {
         LIMIT 1
       )
       LEFT JOIN telecallers forwarder ON forwarder.id = forward_log.telecaller_id
+      LEFT JOIN rejected_loans rl ON (rl.user_id = u.id OR rl.application_id = a.id)
+      LEFT JOIN loan_accounts la ON (la.phone = u.mobile_number OR la.id = CONCAT('LN-', u.lead_number) OR la.id = CONCAT('LN-', REPLACE(COALESCE(u.lead_number, ''), 'GP-LEAD-', '')))
+      WHERE (
+        LOWER(TRIM(REPLACE(COALESCE(a.status, ''), '_', ' '))) IN ('send to fcu', 'sent to fcu', 'send fcu', 'sent fcu', 'send to field verification', 'sent to field verification', 'field verification', 'fcu approved', 'fcu rejected', 'sent to credit', 'forwarded reject', 'disbursed', 'rejected by fcu', 'rejected by credit')
+        OR (ld.id IS NOT NULL AND LOWER(TRIM(REPLACE(COALESCE(ld.status, ''), '_', ' '))) IN ('send to fcu', 'sent to fcu', 'send fcu', 'sent fcu', 'send to field verification', 'sent to field verification', 'field verification', 'fcu approved', 'fcu rejected', 'sent to credit', 'forwarded reject', 'disbursed', 'rejected by fcu', 'rejected by credit'))
+        OR EXISTS (SELECT 1 FROM fcu_case_workflows w WHERE w.application_id = a.id)
+        OR EXISTS (SELECT 1 FROM application_logs al WHERE al.user_id = u.id AND (UPPER(REPLACE(TRIM(COALESCE(al.status, '')), '_', ' ')) = 'SENT TO FCU' OR UPPER(COALESCE(al.status, '')) LIKE '%FCU%' OR UPPER(COALESCE(al.status, '')) LIKE '%FIELD%'))
+      )
+      AND (ld.status IS NULL OR LOWER(TRIM(REPLACE(ld.status, '_', ' '))) NOT IN ('new lead', 'new', 'follow up'))
       ORDER BY a.created_at DESC, a.id DESC
     `);
         const [reviewRows] = await (0, dbQuery_1.dbQuery)('SELECT application_id, document_id, status FROM fcu_document_reviews');
-        const [customerDocumentRows] = await (0, dbQuery_1.dbQuery)(`
-      SELECT *
-      FROM customer_documents
-      ORDER BY id ASC
-    `);
         const [workflowRows] = await (0, dbQuery_1.dbQuery)('SELECT * FROM fcu_case_workflows');
         const [ekycReviewRows] = await (0, dbQuery_1.dbQuery)('SELECT application_id, check_id, status FROM fcu_ekyc_reviews');
         const [creditRows] = await (0, dbQuery_1.dbQuery)('SELECT * FROM credit_report_details ORDER BY updated_at DESC, id DESC');
         const [referenceRows] = await (0, dbQuery_1.dbQuery)('SELECT * FROM references_details ORDER BY user_id, id');
-        const [historyRows] = await (0, dbQuery_1.dbQuery)(`SELECT h.*,fu.name AS performed_by_name FROM fcu_case_history h LEFT JOIN fcu_users fu ON fu.id=h.performed_by ORDER BY h.created_at DESC,h.id DESC`);
+        const [historyRows] = await (0, dbQuery_1.dbQuery)(`
+      SELECT 
+        l.id,
+        l.user_id,
+        a.id AS application_id,
+        l.action AS event_type,
+        COALESCE(l.action, 'Activity Log') AS title,
+        l.details AS description,
+        l.status,
+        COALESCE(l.performed_by_name, fu.name, tc.name, 'System') AS performed_by_name,
+        COALESCE(l.performed_by_role, CASE WHEN fu.id IS NOT NULL THEN 'FCU Reviewer' WHEN tc.id IS NOT NULL THEN 'Telecaller' ELSE 'System' END) AS role,
+        l.created_at
+      FROM application_logs l
+      INNER JOIN users u ON u.id = l.user_id
+      INNER JOIN applications a ON a.user_id = u.id
+      LEFT JOIN fcu_users fu ON (fu.name = l.performed_by_name)
+      LEFT JOIN telecallers tc ON tc.id = l.telecaller_id
+      ORDER BY l.created_at DESC, l.id DESC
+    `);
         const reviewsByApplication = new Map();
         for (const review of reviewRows) {
             if (!reviewsByApplication.has(review.application_id))
                 reviewsByApplication.set(review.application_id, new Map());
             reviewsByApplication.get(review.application_id).set(review.document_id, review.status);
-        }
-        const customerDocumentsByLead = new Map();
-        const customerDocumentsByUser = new Map();
-        for (const document of customerDocumentRows) {
-            const leadId = String(document.lead_id || '').trim().toUpperCase();
-            if (leadId) {
-                if (!customerDocumentsByLead.has(leadId))
-                    customerDocumentsByLead.set(leadId, []);
-                customerDocumentsByLead.get(leadId).push(document);
-            }
-            if (document.user_id) {
-                const uid = Number(document.user_id);
-                if (!customerDocumentsByUser.has(uid))
-                    customerDocumentsByUser.set(uid, []);
-                customerDocumentsByUser.get(uid).push(document);
-            }
         }
         const workflowByApplication = new Map(workflowRows.map((workflow) => [workflow.application_id, workflow]));
         const ekycReviewsByApplication = new Map();
@@ -262,7 +278,18 @@ const findAllCases = async () => {
         for (const item of historyRows) {
             if (!historyByApplication.has(item.application_id))
                 historyByApplication.set(item.application_id, []);
-            historyByApplication.get(item.application_id).push({ id: item.id, type: item.event_type, title: item.title, description: item.description, performedBy: item.performed_by_name || 'System', createdAt: item.created_at });
+            const performedBy = item.performed_by_name || 'System';
+            const role = item.role || (performedBy !== 'System' ? 'FCU Reviewer' : 'System');
+            historyByApplication.get(item.application_id).push({
+                id: item.id,
+                type: item.event_type,
+                title: item.title || item.event_type || 'Activity Log',
+                description: item.description,
+                status: item.status,
+                performedBy,
+                role,
+                createdAt: item.created_at
+            });
         }
         const creditByUser = new Map();
         for (const credit of creditRows) {
@@ -270,11 +297,56 @@ const findAllCases = async () => {
                 creditByUser.set(Number(credit.user_id), credit);
         }
         const referencesByUser = new Map();
-        for (const reference of referenceRows) {
-            const userId = Number(reference.user_id);
-            if (!referencesByUser.has(userId))
-                referencesByUser.set(userId, []);
-            referencesByUser.get(userId).push(reference);
+        const [customerDocRows] = await (0, dbQuery_1.dbQuery)('SELECT * FROM customer_documents ORDER BY id ASC').catch(() => [[]]);
+        const [requestedDocRows] = await (0, dbQuery_1.dbQuery)(`
+      SELECT rd.id, r.application_id, rd.document_name, rd.status, rd.file_name, rd.file_path, rd.uploaded_at, rd.created_at
+      FROM fcu_requested_documents rd
+      JOIN fcu_document_requests r ON r.id = rd.request_id
+      WHERE (rd.file_path IS NOT NULL AND rd.file_path <> '') OR rd.status = 'UPLOADED'
+      ORDER BY rd.id ASC
+    `).catch(() => [[]]);
+        const [kycDocRows] = await (0, dbQuery_1.dbQuery)(`
+      SELECT id, user_id, selfie_path, face_match_percentage, panel_verification_status, created_at
+      FROM kyc_documents
+      WHERE selfie_path IS NOT NULL AND selfie_path <> ''
+      ORDER BY id ASC
+    `).catch(() => [[]]);
+        const customerDocsByUser = new Map();
+        const customerDocsByLead = new Map();
+        const customerDocsByApp = new Map();
+        for (const doc of (customerDocRows || [])) {
+            if (doc.user_id) {
+                const uid = Number(doc.user_id);
+                if (!customerDocsByUser.has(uid))
+                    customerDocsByUser.set(uid, []);
+                customerDocsByUser.get(uid).push(doc);
+            }
+            if (doc.lead_id) {
+                const lid = String(doc.lead_id).trim().toUpperCase();
+                if (!customerDocsByLead.has(lid))
+                    customerDocsByLead.set(lid, []);
+                customerDocsByLead.get(lid).push(doc);
+            }
+            if (doc.application_id) {
+                const aid = Number(doc.application_id);
+                if (!customerDocsByApp.has(aid))
+                    customerDocsByApp.set(aid, []);
+                customerDocsByApp.get(aid).push(doc);
+            }
+        }
+        const requestedDocsByApp = new Map();
+        for (const doc of (requestedDocRows || [])) {
+            const aid = Number(doc.application_id);
+            if (!requestedDocsByApp.has(aid))
+                requestedDocsByApp.set(aid, []);
+            requestedDocsByApp.get(aid).push(doc);
+        }
+        const kycDocsByUser = new Map();
+        for (const doc of (kycDocRows || [])) {
+            const uid = Number(doc.user_id);
+            if (!kycDocsByUser.has(uid))
+                kycDocsByUser.set(uid, []);
+            kycDocsByUser.get(uid).push(doc);
         }
         const colors = ['#2563eb', '#7c3aed', '#059669', '#d97706', '#4f46e5', '#db2777'];
         const cases = rows.map((row, index) => {
@@ -290,10 +362,16 @@ const findAllCases = async () => {
                 ? (typeof row.reference_data === 'string' ? JSON.parse(row.reference_data) : row.reference_data)
                 : [];
             const aadhaarApi = parseJson(row.aadhaar_api_response);
-            const aadhaarProfileImage = row.aadhaar_profile_image
-                ? String(row.aadhaar_profile_image).startsWith('data:')
-                    ? String(row.aadhaar_profile_image)
-                    : `data:image/jpeg;base64,${String(row.aadhaar_profile_image).replace(/\s+/g, '')}`
+            const rawAadhaarPhoto = row.aadhaar_profile_image
+                || aadhaarApi?.photo
+                || aadhaarApi?.data?.photo
+                || aadhaarApi?.profile_image
+                || aadhaarApi?.data?.profile_image
+                || row.fetched_aadhaar_photo;
+            const aadhaarProfileImage = rawAadhaarPhoto
+                ? String(rawAadhaarPhoto).startsWith('data:') || String(rawAadhaarPhoto).startsWith('http') || String(rawAadhaarPhoto).startsWith('/')
+                    ? String(rawAadhaarPhoto)
+                    : `data:image/jpeg;base64,${String(rawAadhaarPhoto).replace(/\s+/g, '')}`
                 : null;
             const panApi = parseJson(row.pan_api_response);
             const creditRecord = creditByUser.get(Number(row.user_id)) || {};
@@ -315,17 +393,154 @@ const findAllCases = async () => {
             const workflow = isFreshFcuHandoff
                 ? { ...storedWorkflow, stage: 'DOCUMENT_REVIEW', case_status: 'PENDING' }
                 : storedWorkflow;
-            const status = normalizeStatus(workflow?.case_status || applicationStatus);
+            const workflowStatus = normalizeStatus(workflow?.case_status);
+            const leadStatus = normalizeStatus(row.lead_status);
+            const isFcuRejected = ['REJECTED_BY_FCU', 'FCU_REJECTED', 'FORWARDED_REJECT'].includes(leadStatus)
+                || ['REJECTED_BY_FCU', 'FCU_REJECTED', 'FORWARDED_REJECT'].includes(applicationStatus)
+                || ['REJECTED_BY_FCU', 'FCU_REJECTED', 'FORWARDED_REJECT'].includes(workflowStatus)
+                || String(row.rejected_remarks || row.rejected_reasons || '').toUpperCase().includes('FCU');
+            const isCreditRejected = ['REJECTED_BY_CREDIT', 'CREDIT_REJECTED'].includes(leadStatus)
+                || ['REJECTED_BY_CREDIT', 'CREDIT_REJECTED'].includes(applicationStatus)
+                || ['REJECTED_BY_CREDIT', 'CREDIT_REJECTED'].includes(workflowStatus)
+                || String(row.rejected_remarks || row.rejected_reasons || '').toUpperCase().includes('CREDIT');
+            const isRejected = isFcuRejected || isCreditRejected || Boolean(row.rejected_loan_id)
+                || ['REJECTED', 'LOAN_REJECT'].includes(leadStatus)
+                || ['REJECTED', 'LOAN_REJECT'].includes(applicationStatus)
+                || ['REJECTED'].includes(workflowStatus);
+            const isDisbursed = Boolean(row.loan_account_id)
+                || leadStatus === 'DISBURSED'
+                || applicationStatus === 'DISBURSED'
+                || ['DISBURSED'].includes(workflowStatus);
+            let status = workflowStatus || applicationStatus || leadStatus || 'PENDING';
+            if (isDisbursed) {
+                status = 'DISBURSED';
+            }
+            else if (isFcuRejected) {
+                status = 'REJECTED_BY_FCU';
+            }
+            else if (isCreditRejected) {
+                status = 'REJECTED_BY_CREDIT';
+            }
+            else if (isRejected) {
+                status = (workflowStatus === 'SENT_TO_CREDIT' || Number(row.application_parameter) === 3 || row.rejected_loan_id)
+                    ? 'REJECTED_BY_CREDIT'
+                    : 'REJECTED_BY_FCU';
+            }
+            else if (leadStatus === 'APPROVED' || applicationStatus === 'APPROVED') {
+                status = 'APPROVED';
+            }
+            else if (workflowStatus) {
+                status = workflowStatus;
+            }
+            else if (applicationStatus && applicationStatus !== 'PENDING') {
+                status = applicationStatus;
+            }
+            else if (leadStatus) {
+                status = leadStatus;
+            }
             const caseLeadId = String(row.lead_number || '').trim().toUpperCase();
             const caseLeadRef = String(row.lead_reference_number || '').trim().toUpperCase();
             const caseUserId = Number(row.user_id);
-            const leadDocs = customerDocumentsByLead.get(caseLeadId) || (caseLeadRef ? customerDocumentsByLead.get(caseLeadRef) : []) || [];
-            const userDocs = customerDocumentsByUser.get(caseUserId) || [];
-            const allDocsMap = new Map();
-            for (const d of [...leadDocs, ...userDocs]) {
-                allDocsMap.set(d.id, d);
+            const caseAppId = Number(row.application_id);
+            // 1. Database customer_documents
+            const dbCustomerDocs = [
+                ...(customerDocsByUser.get(caseUserId) || []),
+                ...(caseLeadId ? (customerDocsByLead.get(caseLeadId) || []) : []),
+                ...(caseLeadRef ? (customerDocsByLead.get(caseLeadRef) || []) : []),
+                ...(caseAppId ? (customerDocsByApp.get(caseAppId) || []) : []),
+            ];
+            // 2. Uploaded requested docs (fcu_requested_documents)
+            const dbReqDocs = requestedDocsByApp.get(caseAppId) || [];
+            // 3. KYC selfie docs (kyc_documents)
+            const dbKycDocs = kycDocsByUser.get(caseUserId) || [];
+            // 4. Local disk scanned files
+            const diskDocs = (0, documentStorage_1.listCustomerDocumentsDirectly)([
+                caseLeadId,
+                caseLeadRef,
+                caseUserId,
+                `USR-${caseUserId}`,
+                `GP-LEAD-${row.application_id}`,
+                `APP${String(row.application_id).padStart(7, '0')}`
+            ]);
+            const normalizeDocFilePath = (p) => {
+                if (!p)
+                    return null;
+                const str = String(p).trim();
+                if (str.startsWith('http://') || str.startsWith('https://') || str.startsWith('data:') || str.startsWith('blob:')) {
+                    return str;
+                }
+                if (str.includes('res.cloudinary.com')) {
+                    const filename = str.split('/').pop() || '';
+                    return `/customer_documents/${filename}`;
+                }
+                if (str.startsWith('/'))
+                    return str;
+                return `/${str}`;
+            };
+            // Merge and deduplicate by key
+            const seenDocKeys = new Set();
+            const combinedDocs = [];
+            for (const d of dbCustomerDocs) {
+                const normPath = normalizeDocFilePath(d.file_path);
+                const key = String(normPath || d.file_name || `db-${d.id}`).trim().toLowerCase();
+                if (key && !seenDocKeys.has(key)) {
+                    seenDocKeys.add(key);
+                    combinedDocs.push({
+                        ...d,
+                        file_path: normPath,
+                    });
+                }
             }
-            const combinedDocs = Array.from(allDocsMap.values()).sort((a, b) => a.id - b.id);
+            for (const reqDoc of dbReqDocs) {
+                const normPath = normalizeDocFilePath(reqDoc.file_path);
+                const key = String(normPath || reqDoc.file_name || `req-${reqDoc.id}`).trim().toLowerCase();
+                if (key && !seenDocKeys.has(key)) {
+                    seenDocKeys.add(key);
+                    combinedDocs.push({
+                        id: `req-${reqDoc.id}`,
+                        doc_type: reqDoc.document_name || 'Requested Document',
+                        file_name: reqDoc.file_name || reqDoc.document_name,
+                        file_path: normPath,
+                        uploaded_by: 'Customer (Upload Link)',
+                        created_at: reqDoc.uploaded_at || reqDoc.created_at,
+                        panel_verification_status: 'PENDING',
+                        tamper_status: 'ORIGINAL',
+                    });
+                }
+            }
+            for (const kyc of dbKycDocs) {
+                const normPath = normalizeDocFilePath(kyc.selfie_path);
+                const key = String(normPath || `kyc-${kyc.id}`).trim().toLowerCase();
+                if (key && !seenDocKeys.has(key)) {
+                    seenDocKeys.add(key);
+                    combinedDocs.push({
+                        id: `kyc-${kyc.id}`,
+                        doc_type: 'Live Selfie Photo',
+                        file_name: String(kyc.selfie_path).split('/').pop() || 'selfie.jpg',
+                        file_path: normPath,
+                        uploaded_by: 'Customer (KYC)',
+                        created_at: kyc.created_at,
+                        panel_verification_status: kyc.panel_verification_status || 'VERIFIED',
+                        tamper_status: 'ORIGINAL',
+                    });
+                }
+            }
+            for (const diskDoc of diskDocs) {
+                const normPath = normalizeDocFilePath(diskDoc.file_path);
+                const key = String(normPath || diskDoc.file_name || diskDoc.id).trim().toLowerCase();
+                if (key && !seenDocKeys.has(key)) {
+                    seenDocKeys.add(key);
+                    combinedDocs.push({
+                        ...diskDoc,
+                        file_path: normPath,
+                    });
+                }
+            }
+            const aadhaarDoc = combinedDocs.find(d => {
+                const t = String(d.doc_type || d.file_name || d.document_name || '').toLowerCase();
+                return t.includes('aadhaar') || t.includes('aadhar');
+            });
+            const resolvedAadhaarPhoto = aadhaarProfileImage || normalizeDocFilePath(aadhaarDoc?.file_path) || null;
             const docs = combinedDocs.map((document, docIndex) => {
                 const documentId = `customer-doc-${document.id}`;
                 const docIdDisplay = `CD-${document.id || docIndex + 1}`;
@@ -376,7 +591,7 @@ const findAllCases = async () => {
                     uploadedBy: uploadedBy,
                     uploaded: document.created_at || row.updated_on,
                     status: effectiveStatus,
-                    fileUrl: document.file_path || null,
+                    fileUrl: normalizeDocFilePath(document.file_path) || null,
                     metaIntegrityStatus,
                     metaIntegrityDetail,
                     faceMatch,
@@ -470,6 +685,9 @@ const findAllCases = async () => {
                 loanRaw: amount,
                 purpose: String(row.loan_purpose || 'Personal').toUpperCase(),
                 lti,
+                applied: row.applied_on || row.created_at || 'N/A',
+                appliedOn: row.applied_on || row.created_at || 'N/A',
+                updatedOn: row.updated_on || 'N/A',
                 branch: row.work_city ? `${row.work_city}${row.work_state ? `, ${row.work_state}` : ''}`.toUpperCase() : (row.city || 'UNASSIGNED').toUpperCase(),
                 rm: row.assigned_to || 'Unassigned',
                 owner: row.assigned_to || 'Unassigned',
@@ -480,9 +698,12 @@ const findAllCases = async () => {
                 databaseId: row.application_id,
                 parameter: Number(row.application_parameter || 0),
                 workflowStage: workflow?.stage || 'DOCUMENT_REVIEW',
-                applied: row.applied_on || 'N/A',
-                disburse: status === 'DISBURSED' ? row.updated_on : '—',
-                flags: status === 'REJECTED' ? ['REJECTED'] : status === 'DOCUMENT_PENDING' ? ['DOCUMENT PENDING'] : [],
+                title: row.title || (() => {
+                    const g = String(row.gender || row.aadhaar_gender || row.fetched_aadhaar_gender || row.uan_gender || '').trim().toUpperCase();
+                    const isF = g === 'FEMALE' || g === 'F';
+                    const isM = String(row.marital_status || '').trim().toUpperCase() === 'MARRIED';
+                    return isF ? (isM ? 'MRS' : 'MS') : 'MR';
+                })(),
                 dob: row.dob || 'N/A',
                 gender: row.gender || 'N/A',
                 pan: row.pan_number || 'Not available',
@@ -538,7 +759,7 @@ const findAllCases = async () => {
                         issuedBy: 'UIDAI',
                         verifiedOn: row.aadhaar_verified_on || 'N/A',
                         addressType: row.address_type || 'N/A',
-                        photo: aadhaarProfileImage || aadhaarApi?.photo || aadhaarApi?.data?.photo || null,
+                        photo: resolvedAadhaarPhoto,
                         address: row.aadhaar_address || row.address || 'N/A',
                         addressLine2: row.city || 'N/A', city: row.city || 'N/A', state: row.state || 'N/A', pincode: row.pincode || 'N/A', country: 'India',
                     },
@@ -643,12 +864,30 @@ const findAllCases = async () => {
                         message: row.upi_message || 'N/A',
                         status: row.upi_request_id ? 'Fetched' : 'Not fetched',
                     },
-                    selfie: row.selfie_path || null,
+                    selfie: (() => {
+                        if (row.selfie_path)
+                            return row.selfie_path;
+                        const selfieDoc = combinedDocs.find(d => {
+                            const t = String(d.doc_type || d.file_name || d.document_name || '').toLowerCase();
+                            return t.includes('selfie') || t.includes('profile') || t.includes('photo');
+                        });
+                        return selfieDoc?.file_path || null;
+                    })(),
                     faceMatch: {
                         percentage: row.face_match_percentage != null ? Number(row.face_match_percentage) : null,
                         status: row.face_match_status || null,
                         confidence: row.face_match_confidence || null,
-                        details: row.face_match_details || null,
+                        details: (() => {
+                            if (!row.face_match_details)
+                                return null;
+                            try {
+                                const parsed = typeof row.face_match_details === 'string' ? JSON.parse(row.face_match_details) : row.face_match_details;
+                                return parsed?.message || parsed?.result || (parsed?.face_match ? 'The faces show consistent facial geometry.' : 'The faces do not appear to belong to the same person.');
+                            }
+                            catch (e) {
+                                return row.face_match_details;
+                            }
+                        })(),
                     },
                 },
                 fieldDetails: {
@@ -746,21 +985,59 @@ const getDocumentReviewSummary = async (applicationId) => {
 exports.getDocumentReviewSummary = getDocumentReviewSummary;
 const getWorkflow = async (applicationId) => {
     const [rows] = await db_1.default.query(`
-    SELECT w.*, a.parameter AS application_parameter, a.status AS application_status,
-           a.updated_at AS application_updated_at
+    SELECT 
+      w.*,
+      ld.status AS lead_status,
+      ld.field_assigned_to AS lead_field_assigned_to,
+      ld.reviewed_by AS lead_reviewed_by,
+      a.parameter AS application_parameter, 
+      a.status AS application_status,
+      a.updated_at AS application_updated_at
     FROM applications a
+    INNER JOIN users u ON u.id = a.user_id
+    LEFT JOIN leads ld ON (ld.user_id = u.id OR ld.lead_id = u.lead_number OR ld.lead_id = u.lead_reference_number OR ld.application_id = a.id)
     LEFT JOIN fcu_case_workflows w ON w.application_id = a.id
-    WHERE a.id = ? LIMIT 1
+    WHERE a.id = ?
+    ORDER BY ld.id DESC
+    LIMIT 1
   `, [applicationId]);
     const row = rows[0];
+    if (!row)
+        return { application_id: applicationId, stage: 'DOCUMENT_REVIEW', case_status: 'PENDING' };
     const sourceStatus = normalizeStatus(row?.application_status);
+    const leadStatus = normalizeStatus(row?.lead_status);
     const isNewHandoff = Number(row?.application_parameter) === 2
         && ['SENT_TO_FCU', 'SENT_FCU'].includes(sourceStatus)
         && (!row?.application_id || new Date(row.application_updated_at).getTime() > new Date(row.updated_at).getTime());
     if (isNewHandoff) {
         return { ...row, application_id: applicationId, stage: 'DOCUMENT_REVIEW', case_status: 'PENDING' };
     }
-    return row?.application_id ? row : { application_id: applicationId, stage: 'DOCUMENT_REVIEW', case_status: 'PENDING' };
+    let mappedCaseStatus = row.case_status || 'PENDING';
+    let mappedStage = row.stage || 'DOCUMENT_REVIEW';
+    if (leadStatus === 'SENT_TO_CREDIT') {
+        mappedCaseStatus = 'SENT_TO_CREDIT';
+        mappedStage = 'FINALIZED';
+    }
+    else if (leadStatus === 'REJECTED_BY_FCU' || leadStatus === 'FORWARDED_REJECT' || leadStatus === 'FCU_REJECTED') {
+        mappedCaseStatus = 'FORWARDED_REJECT';
+        mappedStage = 'FINALIZED';
+    }
+    else if (leadStatus === 'HOLD') {
+        mappedCaseStatus = 'HOLD';
+        mappedStage = 'FINALIZED';
+    }
+    else if (leadStatus === 'SEND_TO_FIELD_VERIFICATION' || leadStatus === 'FIELD_VERIFICATION' || row.lead_field_assigned_to) {
+        mappedCaseStatus = 'FIELD_VERIFICATION';
+        mappedStage = 'FIELD_ASSIGNED';
+    }
+    return {
+        ...row,
+        application_id: applicationId,
+        stage: mappedStage,
+        case_status: mappedCaseStatus,
+        field_assigned_to: row.lead_field_assigned_to || row.field_assigned_to || null,
+        reviewed_by: row.lead_reviewed_by || row.reviewed_by || null,
+    };
 };
 exports.getWorkflow = getWorkflow;
 const updateEkycReview = async (applicationId, checkId, status, reviewerId) => {
@@ -807,6 +1084,18 @@ const saveWorkflowAction = async (applicationId, stage, caseStatus, reviewerId, 
         if (applicationParameter !== undefined) {
             await connection.query('UPDATE applications SET parameter = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [applicationParameter, applicationId]);
         }
+        let reviewerName = 'fcu';
+        let reviewerDisplayName = 'FCU Reviewer';
+        let reviewerRole = 'FCU Reviewer';
+        if (reviewerId) {
+            const [revRows] = await connection.query('SELECT name, role FROM fcu_users WHERE id = ? LIMIT 1', [reviewerId]);
+            if (revRows[0]?.name) {
+                reviewerDisplayName = String(revRows[0].name).trim();
+                reviewerName = reviewerDisplayName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+                if (revRows[0]?.role)
+                    reviewerRole = String(revRows[0].role).trim();
+            }
+        }
         if (rejectionDecision) {
             const isFraud = rejectionDecision === 'FRAUD';
             const reapplyDays = Math.max(1, Number(process.env.FCU_REAPPLY_AFTER_DAYS || 90));
@@ -817,24 +1106,93 @@ const saveWorkflowAction = async (applicationId, stage, caseStatus, reviewerId, 
             const application = applicationRows[0];
             if (!application)
                 throw new Error('Application not found while saving rejection decision');
-            const reason = rejectionReason?.trim() || (isFraud ? 'Flagged as fraud by FCU' : 'Rejected by FCU');
-            const remarks = isFraud ? 'Permanent fraud ban applied by FCU reviewer.' : `Applicant may reapply after ${reapplyDays} days.`;
+            const userRemark = rejectionReason?.trim();
+            const reason = userRemark || (isFraud ? 'Flagged as fraud by FCU' : 'Rejected by FCU');
+            const remarks = userRemark || (isFraud ? 'Permanent fraud ban applied by FCU reviewer.' : `Applicant may reapply after ${reapplyDays} days.`);
+            const rejectedStatus = `rejected_by_fcu(${reviewerName})`;
             const [rejectionRows] = await connection.query('SELECT id FROM rejected_loans WHERE application_id = ? LIMIT 1 FOR UPDATE', [applicationId]);
             if (rejectionRows.length) {
-                await connection.query(`UPDATE rejected_loans SET user_id=?, lead_id=?, rejection_reasons=?, remarks=?, fraud_status=?,
+                await connection.query(`UPDATE rejected_loans SET user_id=?, lead_id=?, status=?, rejection_reasons=?, remarks=?, fraud_status=?,
           is_permanent_ban=?, can_reapply_after=${isFraud ? 'NULL' : 'DATE_ADD(CURRENT_DATE, INTERVAL ? DAY)'},
           rejected_at=CURRENT_TIMESTAMP, updated_by=?, updated_at=CURRENT_TIMESTAMP WHERE application_id=?`, isFraud
-                    ? [application.user_id, application.lead_number || null, reason, remarks, 'REPORT_FRAUD', 1, reviewerId, applicationId]
-                    : [application.user_id, application.lead_number || null, reason, remarks, 'NOT_FRAUD', 0, reapplyDays, reviewerId, applicationId]);
+                    ? [application.user_id, application.lead_number || null, rejectedStatus, reason, remarks, 'REPORT_FRAUD', 1, reviewerDisplayName, applicationId]
+                    : [application.user_id, application.lead_number || null, rejectedStatus, reason, remarks, 'NOT_FRAUD', 0, reapplyDays, reviewerDisplayName, applicationId]);
             }
             else {
                 await connection.query(`INSERT INTO rejected_loans
-          (user_id,application_id,lead_id,rejection_reasons,remarks,fraud_status,is_permanent_ban,can_reapply_after,rejected_at,updated_by,created_at,updated_at)
-          VALUES (?,?,?,?,?,?,?,${isFraud ? 'NULL' : 'DATE_ADD(CURRENT_DATE, INTERVAL ? DAY)'},CURRENT_TIMESTAMP,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, isFraud
-                    ? [application.user_id, applicationId, application.lead_number || null, reason, remarks, 'REPORT_FRAUD', 1, reviewerId]
-                    : [application.user_id, applicationId, application.lead_number || null, reason, remarks, 'NOT_FRAUD', 0, reapplyDays, reviewerId]);
+          (user_id,application_id,lead_id,status,rejection_reasons,remarks,fraud_status,is_permanent_ban,can_reapply_after,rejected_at,updated_by,created_at,updated_at)
+          VALUES (?,?,?,?,?,?,?,?,${isFraud ? 'NULL' : 'DATE_ADD(CURRENT_DATE, INTERVAL ? DAY)'},CURRENT_TIMESTAMP,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, isFraud
+                    ? [application.user_id, applicationId, application.lead_number || null, rejectedStatus, reason, remarks, 'REPORT_FRAUD', 1, reviewerDisplayName]
+                    : [application.user_id, applicationId, application.lead_number || null, rejectedStatus, reason, remarks, 'NOT_FRAUD', 0, reapplyDays, reviewerDisplayName]);
             }
-            await connection.query('UPDATE applications SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', ['rejected', applicationId]);
+            await connection.query('UPDATE applications SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', ['rejected_by_fcu', applicationId]);
+        }
+        else if (caseStatus === 'FIELD_VERIFICATION' || stage === 'FIELD_ASSIGNED') {
+            await connection.query('UPDATE applications SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', ['send_to_field_verification', applicationId]);
+        }
+        else if (caseStatus === 'SENT_TO_CREDIT') {
+            await connection.query('UPDATE applications SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', ['sent_to_credit', applicationId]);
+        }
+        else if (caseStatus === 'HOLD') {
+            await connection.query('UPDATE applications SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', ['hold', applicationId]);
+        }
+        // Keep leads table status and field_assigned_to synchronized directly for THIS application only
+        try {
+            let leadNewStatus = null;
+            const isCreditRole = String(reviewerRole || '').toLowerCase().includes('credit');
+            if (rejectionDecision || caseStatus === 'FORWARDED_REJECT' || caseStatus === 'FCU_REJECTED' || caseStatus === 'REJECTED') {
+                leadNewStatus = isCreditRole ? 'rejected_by_credit' : 'rejected_by_fcu';
+            }
+            else if (caseStatus === 'FIELD_VERIFICATION' || stage === 'FIELD_ASSIGNED') {
+                leadNewStatus = 'send_to_field_verification';
+            }
+            else if (caseStatus === 'SENT_TO_CREDIT') {
+                leadNewStatus = 'sent_to_credit';
+            }
+            else if (caseStatus === 'HOLD') {
+                leadNewStatus = 'hold';
+            }
+            else if (caseStatus === 'FCU_APPROVED' || caseStatus === 'APPROVED') {
+                leadNewStatus = 'fcu_approved';
+            }
+            if (leadNewStatus) {
+                const [appInfoRows] = await connection.query('SELECT a.user_id, u.lead_number, u.lead_reference_number FROM applications a LEFT JOIN users u ON u.id = a.user_id WHERE a.id = ? LIMIT 1', [applicationId]);
+                const appInfo = appInfoRows[0];
+                const targetUserId = appInfo?.user_id;
+                const targetLeadNum = appInfo?.lead_number ? String(appInfo.lead_number).trim() : null;
+                const targetLeadRef = appInfo?.lead_reference_number ? String(appInfo.lead_reference_number).trim() : null;
+                const whereParts = ['application_id = ?'];
+                const updateParams = [leadNewStatus, assignedTo, reviewerDisplayName || String(reviewerId), applicationId];
+                if (targetUserId) {
+                    whereParts.push('user_id = ?');
+                    updateParams.push(targetUserId);
+                }
+                if (targetLeadNum) {
+                    whereParts.push('lead_id = ?');
+                    updateParams.push(targetLeadNum);
+                }
+                if (targetLeadRef) {
+                    whereParts.push('lead_id = ?');
+                    updateParams.push(targetLeadRef);
+                }
+                const [leadUpdateRes] = await connection.query(`
+          UPDATE leads
+          SET status = ?,
+              field_assigned_to = COALESCE(?, field_assigned_to),
+              reviewed_by = COALESCE(?, reviewed_by),
+              updated_at = CURRENT_TIMESTAMP
+          WHERE ${whereParts.join(' OR ')}
+        `, updateParams);
+                if (leadUpdateRes.affectedRows === 0 && targetUserId) {
+                    await connection.query(`
+            INSERT INTO leads (user_id, application_id, lead_id, status, field_assigned_to, reviewed_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          `, [targetUserId, applicationId, targetLeadNum || targetLeadRef || `GP-LEAD-${applicationId}`, leadNewStatus, assignedTo, reviewerDisplayName || String(reviewerId)]);
+                }
+            }
+        }
+        catch (e) {
+            console.warn('Could not update leads table for workflow action:', e);
         }
         await connection.commit();
     }
@@ -894,14 +1252,79 @@ const userOwnsCase = async (applicationId, userId) => {
 };
 exports.userOwnsCase = userOwnsCase;
 const addCaseHistory = async (applicationId, eventType, title, description, userId) => {
-    const [result] = await db_1.default.query('INSERT INTO fcu_case_history (application_id,event_type,title,description,performed_by) VALUES (?,?,?,?,?)', [applicationId, eventType, title, description, userId || null]);
-    const [rows] = await db_1.default.query(`SELECT h.*,fu.name AS performed_by_name FROM fcu_case_history h LEFT JOIN fcu_users fu ON fu.id=h.performed_by WHERE h.id=?`, [result.insertId]);
-    const item = rows[0];
-    return { id: item.id, type: item.event_type, title: item.title, description: item.description, performedBy: item.performed_by_name || 'System', createdAt: item.created_at };
+    const [appRows] = await db_1.default.query('SELECT user_id FROM applications WHERE id = ? LIMIT 1', [applicationId]);
+    const applicantUserId = appRows[0]?.user_id;
+    if (!applicantUserId)
+        return null;
+    let reviewerName = 'System';
+    let reviewerRole = 'System';
+    if (userId) {
+        const [userRows] = await db_1.default.query('SELECT name, role FROM fcu_users WHERE id = ? LIMIT 1', [userId]);
+        if (userRows[0]) {
+            reviewerName = userRows[0].name || 'FCU Reviewer';
+            reviewerRole = userRows[0].role || 'FCU Reviewer';
+        }
+    }
+    const actionText = title || eventType;
+    const [result] = await db_1.default.query(`
+    INSERT INTO application_logs (
+      user_id,
+      action,
+      status,
+      details,
+      performed_by_role,
+      performed_by_name,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  `, [
+        applicantUserId,
+        actionText,
+        'SUCCESS',
+        description || null,
+        reviewerRole,
+        reviewerName
+    ]);
+    return {
+        id: result.insertId,
+        type: eventType,
+        title: actionText,
+        description: description,
+        performedBy: reviewerName,
+        role: reviewerRole,
+        createdAt: new Date().toISOString()
+    };
 };
 exports.addCaseHistory = addCaseHistory;
 const getCaseHistory = async (applicationId) => {
-    const [rows] = await db_1.default.query(`SELECT h.*,fu.name AS performed_by_name FROM fcu_case_history h LEFT JOIN fcu_users fu ON fu.id=h.performed_by WHERE h.application_id=? ORDER BY h.created_at DESC,h.id DESC`, [applicationId]);
-    return rows.map((item) => ({ id: item.id, type: item.event_type, title: item.title, description: item.description, performedBy: item.performed_by_name || 'System', createdAt: item.created_at }));
+    const [rows] = await db_1.default.query(`
+    SELECT 
+      l.id,
+      l.user_id,
+      a.id AS application_id,
+      l.action AS event_type,
+      COALESCE(l.action, 'Activity Log') AS title,
+      l.details AS description,
+      l.status,
+      COALESCE(l.performed_by_name, fu.name, tc.name, 'System') AS performed_by,
+      COALESCE(l.performed_by_role, CASE WHEN fu.id IS NOT NULL THEN 'FCU Reviewer' WHEN tc.id IS NOT NULL THEN 'Telecaller' ELSE 'System' END) AS role,
+      l.created_at
+    FROM application_logs l
+    INNER JOIN users u ON u.id = l.user_id
+    INNER JOIN applications a ON a.user_id = u.id
+    LEFT JOIN fcu_users fu ON (fu.name = l.performed_by_name)
+    LEFT JOIN telecallers tc ON tc.id = l.telecaller_id
+    WHERE a.id = ?
+    ORDER BY l.created_at DESC, l.id DESC
+  `, [applicationId]);
+    return rows.map((item) => ({
+        id: item.id,
+        type: item.event_type,
+        title: item.title,
+        description: item.description,
+        status: item.status,
+        performedBy: item.performed_by || 'System',
+        role: item.role || 'System',
+        createdAt: item.created_at
+    }));
 };
 exports.getCaseHistory = getCaseHistory;

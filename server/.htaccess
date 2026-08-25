@@ -1,0 +1,17 @@
+# DO NOT REMOVE. CLOUDLINUX PASSENGER CONFIGURATION BEGIN
+PassengerAppRoot "/home/geetpay/public_html/api.geetpay.in/FCUTEAM"
+PassengerBaseURI "/FCUTEAM"
+PassengerNodejs "/home/geetpay/nodevenv/public_html/api.geetpay.in/FCUTEAM/24/bin/node"
+PassengerAppType node
+PassengerStartupFile app.js
+# DO NOT REMOVE. CLOUDLINUX PASSENGER CONFIGURATION END
+
+# Dynamic Cross-Origin Resource Sharing (Zero-CORS with credentials support)
+<IfModule mod_headers.c>
+    SetEnvIfNoCase Origin "(.+)" CORS_ORIGIN=$1
+    Header always set Access-Control-Allow-Origin "%{CORS_ORIGIN}e" env=CORS_ORIGIN
+    Header always set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD"
+    Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie, Set-Cookie, x-token"
+    Header always set Access-Control-Allow-Credentials "true"
+    Header always set Access-Control-Expose-Headers "Authorization, Set-Cookie"
+</IfModule>

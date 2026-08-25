@@ -286,6 +286,13 @@ export const updateLeadStatus = async (req: Request, res: Response): Promise<voi
       [status.toLowerCase(), realUserId]
     );
 
+    try {
+      await pool.query(
+        'UPDATE leads SET status = ? WHERE user_id = ? OR lead_id = (SELECT lead_number FROM users WHERE id = ?)',
+        [status, realUserId, realUserId]
+      );
+    } catch {}
+
     await pool.query(`
       INSERT INTO application_logs (user_id, telecaller_id, action, status)
       VALUES (?, ?, ?, ?)

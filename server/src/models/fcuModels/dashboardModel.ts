@@ -1,15 +1,49 @@
 import pool from '../../config/db';
+import { findAllCases } from './casesModel';
 
 export const getDashboardData = async () => {
-  const fcuFilter = `(a.status IN ('SENT_TO_FCU', 'SENT_FCU', 'sent to fcu', 'sent_to_fcu') OR a.parameter = 2 OR w.id IS NOT NULL)`;
+  const allCases = await findAllCases();
+  const isSentToFcu = (caseItem: any) => {
+    const raw = String(caseItem.sourceStatus || '').toUpperCase().replace(/[\s_-]+/g, '_');
+    return raw === 'SENT_TO_FCU' || raw === 'SENT_FCU' || raw.includes('FCU');
+  };
+
+  const total = allCases.length;
+  const pendingCases = allCases.filter(c => !['APPROVED', 'FCU_APPROVED', 'DISBURSED', 'SENT_TO_CREDIT'].includes(c.status) && !c.status.includes('REJECT') && c.workflowStage !== 'FINALIZED' && isSentToFcu(c));
+  const pending = pendingCases.length;
+  const completed = Math.max(0, total - pending);
+  const approved = allCases.filter(c => c.status === 'APPROVED' || c.status === 'FCU_APPROVED').length;
+  const rejected = allCases.filter(c => c.status.includes('REJECT') || c.status === 'FORWARDED_REJECT').length;
+  const fraudDetected = allCases.filter(c => (c.flags && c.flags.length > 0) || c.fraudStatus === 'REPORT_FRAUD' || c.status === 'FRAUD_FLAGGED').length;
+
+  const fcuFilter = `(
+    LOWER(TRIM(REPLACE(COALESCE(a.status, ''), '_', ' '))) IN ('send to fcu', 'sent to fcu', 'send fcu', 'sent fcu', 'fcu approved', 'fcu rejected', 'sent to credit', 'forwarded reject', 'disbursed', 'approved', 'rejected', 'loan reject', 'rejected by fcu', 'rejected by credit')
+    OR EXISTS (
+      SELECT 1 FROM leads ld 
+      WHERE (ld.user_id = a.user_id OR ld.lead_id = (SELECT lead_number FROM users WHERE id = a.user_id) OR ld.lead_id = (SELECT lead_reference_number FROM users WHERE id = a.user_id))
+        AND LOWER(TRIM(REPLACE(COALESCE(ld.status, ''), '_', ' '))) IN ('send to fcu', 'sent to fcu', 'send fcu', 'sent fcu', 'fcu approved', 'fcu rejected', 'sent to credit', 'forwarded reject', 'disbursed', 'approved', 'rejected', 'loan reject', 'rejected by fcu', 'rejected by credit')
+    )
+    OR EXISTS (
+      SELECT 1 FROM fcu_case_workflows w WHERE w.application_id = a.id
+    )
+    OR EXISTS (
+      SELECT 1 FROM rejected_loans rl WHERE rl.user_id = a.user_id OR rl.application_id = a.id
+    )
+    OR EXISTS (
+      SELECT 1 FROM application_logs al 
+      WHERE al.user_id = a.user_id 
+        AND (
+          UPPER(REPLACE(TRIM(COALESCE(al.status, '')), '_', ' ')) = 'SENT TO FCU' 
+          OR UPPER(COALESCE(al.status, '')) LIKE '%FCU%'
+          OR UPPER(COALESCE(al.status, '')) LIKE '%REJECT%'
+          OR UPPER(COALESCE(al.action, '')) LIKE '%FCU%'
+          OR UPPER(COALESCE(al.action, '')) LIKE '%REJECT%'
+        )
+    )
+  )`;
 
   const [summaryRows]: any = await pool.query(`
     SELECT
-      COUNT(*) AS totalCases,
-      SUM(CASE WHEN w.stage <> 'FINALIZED' AND COALESCE(w.case_status, a.status) IN ('pending','draft','in review','PENDING','UNDER_REVIEW','FIELD_VERIFICATION') THEN 1 ELSE 0 END) AS pending,
-      SUM(CASE WHEN w.stage = 'FINALIZED' OR COALESCE(w.case_status, a.status) IN ('approved','rejected','loan reject','APPROVED','REJECTED','SENT_TO_CREDIT','FORWARDED_REJECT') THEN 1 ELSE 0 END) AS completed,
-      SUM(CASE WHEN COALESCE(w.case_status, a.status) IN ('approved','APPROVED') THEN 1 ELSE 0 END) AS approved,
-      SUM(CASE WHEN COALESCE(w.case_status, a.status) IN ('rejected','loan reject','REJECTED','FORWARDED_REJECT') THEN 1 ELSE 0 END) AS rejected,
       ROUND(AVG(CASE WHEN w.updated_at IS NOT NULL THEN TIMESTAMPDIFF(HOUR, a.created_at, w.updated_at) / 24 END), 1) AS avgTat
     FROM applications a
     LEFT JOIN fcu_case_workflows w ON w.application_id = a.id
@@ -19,14 +53,14 @@ export const getDashboardData = async () => {
   const [dailyRows]: any = await pool.query(`
     SELECT DATE_FORMAT(days.day, '%a') AS day,
       COUNT(fcu_apps.id) AS assigned,
-      SUM(CASE WHEN fcu_apps.stage = 'FINALIZED' THEN 1 ELSE 0 END) AS completed
+      SUM(CASE WHEN fcu_apps.stage = 'FINALIZED' OR fcu_apps.status IN ('SENT_TO_CREDIT', 'FORWARDED_REJECT', 'FCU_APPROVED', 'FCU_REJECTED') THEN 1 ELSE 0 END) AS completed
     FROM (
       SELECT CURDATE() - INTERVAL 6 DAY AS day UNION ALL SELECT CURDATE() - INTERVAL 5 DAY UNION ALL
       SELECT CURDATE() - INTERVAL 4 DAY UNION ALL SELECT CURDATE() - INTERVAL 3 DAY UNION ALL
       SELECT CURDATE() - INTERVAL 2 DAY UNION ALL SELECT CURDATE() - INTERVAL 1 DAY UNION ALL SELECT CURDATE()
     ) days
     LEFT JOIN (
-      SELECT a.id, a.created_at, w.stage
+      SELECT a.id, a.user_id, a.created_at, a.status, w.stage
       FROM applications a
       LEFT JOIN fcu_case_workflows w ON w.application_id = a.id
       WHERE ${fcuFilter}
@@ -48,7 +82,7 @@ export const getDashboardData = async () => {
       SELECT DATE_FORMAT(CURDATE(), '%Y-%m-01')
     ) months
     LEFT JOIN (
-      SELECT a.id, a.created_at, a.status, w.case_status, w.stage
+      SELECT a.id, a.user_id, a.created_at, a.status, w.case_status, w.stage
       FROM applications a
       LEFT JOIN fcu_case_workflows w ON w.application_id = a.id
       WHERE ${fcuFilter}
@@ -100,22 +134,19 @@ export const getDashboardData = async () => {
   `);
 
   const summary = summaryRows[0] || {};
-  const total = Number(summary.totalCases || 0);
-  const approved = Number(summary.approved || 0);
-  const rejected = Number(summary.rejected || 0);
 
   return {
     summary: {
       totalCases: total,
-      assigned: dailyRows.reduce((sum: number, row: any) => sum + Number(row.assigned || 0), 0),
-      pending: Number(summary.pending || 0),
-      completed: Number(summary.completed || 0),
+      assigned: total,
+      pending,
+      completed,
       approved,
       rejected,
-      avgTat: Number(summary.avgTat || 0),
+      avgTat: Number(summary.avgTat || 0.1),
       approvalRatio: total ? Number(((approved / total) * 100).toFixed(1)) : 0,
       rejectionRatio: total ? Number(((rejected / total) * 100).toFixed(1)) : 0,
-      fraudDetected: 0,
+      fraudDetected,
     },
     dailyCases: dailyRows.map((row: any) => ({ day: row.day, assigned: Number(row.assigned), completed: Number(row.completed), pending: Math.max(0, Number(row.assigned) - Number(row.completed)) })),
     tatTrend: monthlyRows.map((row: any) => ({ week: row.month, tat: Number(summary.avgTat || 0) })),

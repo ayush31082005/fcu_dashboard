@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import pool from '../config/db';
-import { uploadToCloudinary } from '../config/cloudinary';
+import { saveSelfieFile } from '../config/documentStorage';
 import fs from 'fs';
 import path from 'path';
 
@@ -239,17 +239,19 @@ export const uploadSelfie = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    const dataUri = imageBase64.startsWith('data:') ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`;
-    const cloudinaryUrl = await uploadToCloudinary(dataUri, 'selfies', `selfie_${userId}_${Date.now()}`);
+    const saved = await saveSelfieFile({
+      userId,
+      base64Data: imageBase64,
+    });
 
     const query = `
       INSERT INTO kyc_documents (user_id, selfie_path) 
       VALUES (?, ?)
     `;
     
-    await pool.query(query, [userId, cloudinaryUrl]);
+    await pool.query(query, [userId, saved.filePath]);
 
-    res.status(200).json({ status: 'success', message: 'Selfie uploaded successfully', path: cloudinaryUrl });
+    res.status(200).json({ status: 'success', message: 'Selfie uploaded successfully', path: saved.filePath });
   } catch (error: any) {
     console.error('uploadSelfie error:', error);
     res.status(500).json({ status: 'error', message: 'Failed to upload selfie', error: error?.message });

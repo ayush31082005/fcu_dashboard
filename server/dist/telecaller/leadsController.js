@@ -268,6 +268,10 @@ const updateLeadStatus = async (req, res) => {
         }
         const realUserId = userRows[0].id;
         await db_1.default.query('UPDATE applications SET status = ? WHERE user_id = ?', [status.toLowerCase(), realUserId]);
+        try {
+            await db_1.default.query('UPDATE leads SET status = ? WHERE user_id = ? OR lead_id = (SELECT lead_number FROM users WHERE id = ?)', [status, realUserId, realUserId]);
+        }
+        catch { }
         await db_1.default.query(`
       INSERT INTO application_logs (user_id, telecaller_id, action, status)
       VALUES (?, ?, ?, ?)

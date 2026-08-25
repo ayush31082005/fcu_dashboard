@@ -13,6 +13,7 @@ const findBankForPennyVerification = async (applicationId) => {
     INNER JOIN users u ON u.id = a.user_id
     LEFT JOIN bank_details bd ON bd.user_id = a.user_id
     WHERE a.id = ?
+    ORDER BY bd.id DESC
     LIMIT 1
   `, [applicationId]);
     return rows[0] || null;

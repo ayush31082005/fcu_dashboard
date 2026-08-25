@@ -3,19 +3,26 @@ import Dashboard from './Dashboard'
 import LeadTracker from './LeadTracker'
 import Reports from './Reports'
 import LoginPage, { API_BASE_URL, type FcuUser } from './LoginPage'
+import geetpayLogo from './assets/geetpay-logo.png'
+import { fcuFetch } from './utils/fcuApi'
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; dot: string }> = {
-  DISBURSED:        { label: 'Disbursed',        bg: 'bg-slate-100', text: 'text-slate-800', dot: 'bg-slate-700' },
-  DOCUMENT_PENDING: { label: 'Document Pending', bg: 'bg-zinc-100',  text: 'text-zinc-800', dot: 'bg-zinc-600' },
-  REJECTED:         { label: 'Rejected',          bg: 'bg-stone-100', text: 'text-stone-800', dot: 'bg-stone-700' },
-  PENDING:          { label: 'Pending',           bg: 'bg-slate-100', text: 'text-slate-700', dot: 'bg-slate-500' },
-  APPROVED:         { label: 'Approved',          bg: 'bg-zinc-100',  text: 'text-zinc-900', dot: 'bg-zinc-700' },
-  UNDER_REVIEW:     { label: 'Under Review',      bg: 'bg-slate-100', text: 'text-slate-700', dot: 'bg-slate-500' },
-  FRAUD_FLAGGED:    { label: 'Fraud Flagged',     bg: 'bg-zinc-100',  text: 'text-zinc-900', dot: 'bg-zinc-700' },
-  SENT_TO_CREDIT:   { label: 'Sent to Credit',    bg: 'bg-zinc-100',  text: 'text-zinc-900', dot: 'bg-zinc-700' },
-  FORWARDED_REJECT: { label: 'Forwarded Reject',  bg: 'bg-stone-100', text: 'text-stone-800', dot: 'bg-stone-700' },
+  DISBURSED: { label: 'Disbursed', bg: 'bg-slate-100', text: 'text-slate-800', dot: 'bg-slate-700' },
+  DOCUMENT_PENDING: { label: 'Document Pending', bg: 'bg-zinc-100', text: 'text-zinc-800', dot: 'bg-zinc-600' },
+  REJECTED: { label: 'Rejected', bg: 'bg-rose-50', text: 'text-rose-800', dot: 'bg-rose-600' },
+  REJECTED_BY_FCU: { label: 'Rejected by FCU', bg: 'bg-rose-50', text: 'text-rose-800', dot: 'bg-rose-600' },
+  FCU_REJECTED: { label: 'Rejected by FCU', bg: 'bg-rose-50', text: 'text-rose-800', dot: 'bg-rose-600' },
+  FORWARDED_REJECT: { label: 'Rejected by FCU', bg: 'bg-rose-50', text: 'text-rose-800', dot: 'bg-rose-600' },
+  REJECTED_BY_CREDIT: { label: 'Rejected by Credit', bg: 'bg-amber-50', text: 'text-amber-800', dot: 'bg-amber-600' },
+  CREDIT_REJECTED: { label: 'Rejected by Credit', bg: 'bg-amber-50', text: 'text-amber-800', dot: 'bg-amber-600' },
+  PENDING: { label: 'Pending', bg: 'bg-slate-100', text: 'text-slate-700', dot: 'bg-slate-500' },
+  APPROVED: { label: 'Approved', bg: 'bg-zinc-100', text: 'text-zinc-900', dot: 'bg-zinc-700' },
+  FCU_APPROVED: { label: 'Approved by FCU', bg: 'bg-emerald-50', text: 'text-emerald-800', dot: 'bg-emerald-600' },
+  UNDER_REVIEW: { label: 'Under Review', bg: 'bg-slate-100', text: 'text-slate-700', dot: 'bg-slate-500' },
+  FRAUD_FLAGGED: { label: 'Fraud Flagged', bg: 'bg-rose-100', text: 'text-rose-900', dot: 'bg-rose-700' },
+  SENT_TO_CREDIT: { label: 'Sent to Credit', bg: 'bg-zinc-100', text: 'text-zinc-900', dot: 'bg-zinc-700' },
   FIELD_VERIFICATION: { label: 'Field Verification', bg: 'bg-slate-100', text: 'text-slate-800', dot: 'bg-slate-700' },
-  HOLD:             { label: 'Hold',              bg: 'bg-slate-100', text: 'text-slate-700', dot: 'bg-slate-500' },
+  HOLD: { label: 'Hold', bg: 'bg-slate-100', text: 'text-slate-700', dot: 'bg-slate-500' },
 }
 
 type DocStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
@@ -144,6 +151,7 @@ interface CaseHistoryItem {
   title: string
   description?: string
   performedBy: string
+  role?: string
   createdAt: string
 }
 
@@ -284,10 +292,12 @@ const buildVerificationReport = (status: string): FieldVerificationReport => {
 }
 
 const INIT_CASES: CaseRecord[] = [
-  { id: 'APP0000112', ref: 'LN-CRP-8726372', borrower: 'Manoj Tiwari', initials: 'MT', avatar: '#3b82f6', mobile: '9437539871', email: 'manoji@gmail.com', loan: '₹40,000', loanRaw: 40000, purpose: 'HOME REPAIR', lti: '55%', branch: 'PANROSE DELHI', rm: 'RK GOBIND MISHRA', website: 'APP', status: 'DISBURSED', applied: '16 Jul 2025', disburse: '21 Jul 2025', flags: [], dob: '12 Mar 1990', gender: 'Male', pan: 'ABCPM1234D', aadhar: 'XXXX-XXXX-4321', address: '12, MG Road, Karol Bagh', city: 'Delhi', state: 'Delhi', pincode: '110005', employer: 'HDFC Bank Ltd', income: '₹35,000/mo', tenure: '18 months', cibil: '742', alternateMobile: '9876543210', emailOffice: 'manoj@hdfcbank.com', screenedBy: 'Chandrani Poswani', screenedOn: '09-06-2020 15:30:08', firstName: 'Manoj', middleName: 'Kumar', surname: 'Tiwari', residenceType: 'OWNED', residenceAddressLine1: '12, MG Road', residenceAddressLine2: 'Karol Bagh', serviceLine: 'Personal Loan', owner: 'RK GOBIND MISHRA', docs: buildDocs('DISBURSED'), checks: buildChecks('DISBURSED'), remarks: ['Application verified by FCU team.'], references: [
-    { srNo: 1, name: 'Sleena Pam Barua', relation: 'Brother', mobile: '9198851030', loanLeadId: 'APP000000099' },
-    { srNo: 2, name: 'Rina Pam Barua', relation: 'Parents', mobile: '9198552745', loanLeadId: 'LEAD6379' },
-  ] },
+  {
+    id: 'APP0000112', ref: 'LN-CRP-8726372', borrower: 'Manoj Tiwari', initials: 'MT', avatar: '#3b82f6', mobile: '9437539871', email: 'manoji@gmail.com', loan: '₹40,000', loanRaw: 40000, purpose: 'HOME REPAIR', lti: '55%', branch: 'PANROSE DELHI', rm: 'RK GOBIND MISHRA', website: 'APP', status: 'DISBURSED', applied: '16 Jul 2025', disburse: '21 Jul 2025', flags: [], dob: '12 Mar 1990', gender: 'Male', pan: 'ABCPM1234D', aadhar: 'XXXX-XXXX-4321', address: '12, MG Road, Karol Bagh', city: 'Delhi', state: 'Delhi', pincode: '110005', employer: 'HDFC Bank Ltd', income: '₹35,000/mo', tenure: '18 months', cibil: '742', alternateMobile: '9876543210', emailOffice: 'manoj@hdfcbank.com', screenedBy: 'Chandrani Poswani', screenedOn: '09-06-2020 15:30:08', firstName: 'Manoj', middleName: 'Kumar', surname: 'Tiwari', residenceType: 'OWNED', residenceAddressLine1: '12, MG Road', residenceAddressLine2: 'Karol Bagh', serviceLine: 'Personal Loan', owner: 'RK GOBIND MISHRA', docs: buildDocs('DISBURSED'), checks: buildChecks('DISBURSED'), remarks: ['Application verified by FCU team.'], references: [
+      { srNo: 1, name: 'Sleena Pam Barua', relation: 'Brother', mobile: '9198851030', loanLeadId: 'APP000000099' },
+      { srNo: 2, name: 'Rina Pam Barua', relation: 'Parents', mobile: '9198552745', loanLeadId: 'LEAD6379' },
+    ]
+  },
   { id: 'APP0000111', ref: 'LN-CRP-8726246', borrower: 'Tanvi Sharma', initials: 'TS', avatar: '#8b5cf6', mobile: '7542197874', email: 'tanvi@gmail.com', loan: '₹35,000', loanRaw: 35000, purpose: 'EDUCATION', lti: '48%', branch: 'NAZUT DELHI', rm: 'RK GOBIND MISHRA', website: 'WEBSITE', status: 'DOCUMENT_PENDING', applied: '16 Jul 2025', disburse: '21 Jul 2025', flags: ['DOCUMENT PENDING'], dob: '05 Aug 1995', gender: 'Female', pan: 'BCDTS5678E', aadhar: 'XXXX-XXXX-8765', address: '34, Laxmi Nagar', city: 'Delhi', state: 'Delhi', pincode: '110092', employer: 'Self Employed', income: '₹28,000/mo', tenure: '12 months', cibil: '698', alternateMobile: '9823456710', emailOffice: 'tanvi@eduhelp.com', screenedBy: 'Rahul Sharma', screenedOn: '09-06-2020 16:10:42', firstName: 'Tanvi', middleName: 'Rani', surname: 'Sharma', residenceType: 'RENTED', residenceAddressLine1: '34, Laxmi Nagar', residenceAddressLine2: 'Near Metro Gate', serviceLine: 'Education Loan', owner: 'RK GOBIND MISHRA', docs: buildDocs('DOCUMENT_PENDING'), checks: buildChecks('DOCUMENT_PENDING'), remarks: [] },
   { id: 'APP0000110', ref: 'LN-CRP-8736374', borrower: 'Girish Pandey', initials: 'GP', avatar: '#10b981', mobile: '9832452730', email: 'girish@gmail.com', loan: '₹65,000', loanRaw: 65000, purpose: 'EDUCATION', lti: '52%', branch: 'GOZTEP VARANASI', rm: 'RK DEEPAK MISHRA', website: 'WEBSITE', status: 'REJECTED', applied: '17 Jul 2025', disburse: '17 Jul 2025', flags: [], dob: '22 Jan 1988', gender: 'Male', pan: 'CEFGP9012F', aadhar: 'XXXX-XXXX-1234', address: '7, Lanka, BHU Road', city: 'Varanasi', state: 'Uttar Pradesh', pincode: '221005', employer: 'Govt. Teacher', income: '₹22,000/mo', tenure: '24 months', cibil: '601', alternateMobile: '9887766554', emailOffice: 'girish@govtteacher.in', screenedBy: 'Kavita Singh', screenedOn: '09-06-2020 13:45:19', firstName: 'Girish', middleName: 'Prakash', surname: 'Pandey', residenceType: 'OWNED', residenceAddressLine1: '7, Lanka', residenceAddressLine2: 'BHU Road', serviceLine: 'Education Loan', owner: 'RK DEEPAK MISHRA', docs: buildDocs('REJECTED'), checks: buildChecks('REJECTED'), remarks: ['CIBIL score below cutoff. Income verification failed.'] },
   { id: 'APP0000109', ref: 'LN-CRP-8726212', borrower: 'Shalini Verma', initials: 'SV', avatar: '#f59e0b', mobile: '9878342508', email: 'shalini@gmail.com', loan: '₹26,000', loanRaw: 26000, purpose: 'MEDICAL', lti: '38%', branch: 'NAZUT DELHI', rm: 'RK PUNEET KHULWA', website: 'WEBSITE', status: 'PENDING', applied: '16 Jul 2025', disburse: '20 Jul 2025', flags: [], dob: '18 Jun 1992', gender: 'Female', pan: 'DHISV3456G', aadhar: 'XXXX-XXXX-5678', address: '56, Pitampura', city: 'Delhi', state: 'Delhi', pincode: '110034', employer: 'Private Hospital', income: '₹31,000/mo', tenure: '12 months', cibil: '718', alternateMobile: '9811123044', emailOffice: 'shalini@hospitalmail.com', screenedBy: 'Pankaj Rawat', screenedOn: '09-06-2020 12:04:31', firstName: 'Shalini', middleName: 'Vandana', surname: 'Verma', residenceType: 'OWNED', residenceAddressLine1: '56, Pitampura', residenceAddressLine2: 'Sector 8', serviceLine: 'Medical Loan', owner: 'RK PUNEET KHULWA', docs: buildDocs('PENDING'), checks: buildChecks('PENDING'), remarks: [] },
@@ -319,8 +329,8 @@ function DigitalClock() {
   const m = String(time.getMinutes()).padStart(2, '0')
   const s = String(time.getSeconds()).padStart(2, '0')
   const ampm = time.getHours() >= 12 ? 'pm' : 'am'
-  const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
-  const months = ['January','February','March','April','May','June','July','August','September','October','November','December']
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
   return (
     <div className="crm-panel rounded-2xl bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)] min-w-[220px]">
       <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-1">Digital Clock</div>
@@ -352,6 +362,7 @@ function LiveSessionDuration({ loginAt }: { loginAt?: string }) {
 function CaseDetailDrawer({
   caseData,
   reviewerName,
+  reviewerRole,
   readOnly = false,
   onClose,
   onCaseUpdate,
@@ -360,12 +371,16 @@ function CaseDetailDrawer({
 }: {
   caseData: CaseRecord
   reviewerName: string
+  reviewerRole?: string
   readOnly?: boolean
   onClose: () => void
   onCaseUpdate: (id: string, updates: Partial<CaseRecord>) => void
   onMoveToCredit: () => void
   onMoveToHold: () => void
 }) {
+  const currentReviewerLabel = reviewerName
+    ? `${reviewerName}${reviewerRole ? ` (${reviewerRole})` : ''}`
+    : (caseData.screenedBy || 'FCU Reviewer')
   const isTerminal = ['SENT_TO_CREDIT', 'DISBURSED', 'REJECTED', 'FORWARDED_REJECT'].includes(caseData.status) || caseData.workflowStage === 'FINALIZED'
   const isReadOnly = Boolean(readOnly || isTerminal)
   const [activeTab, setActiveTab] = useState<'personal' | 'loan' | 'docs' | 'aadhaar' | 'fcu' | 'credit' | 'field' | 'history'>('loan')
@@ -440,13 +455,45 @@ function CaseDetailDrawer({
     verificationStatus: 'Verified',
   })
   const ekyc = caseData.ekycDetails
-  const ekycAssetUrl = (filePath?: string | null) => filePath
-    ? (/^(https?:|data:|blob:)/i.test(filePath) ? filePath : `${API_BASE_URL}/${filePath.replace(/^\/+/, '')}`)
-    : ''
+  const ekycAssetUrl = (filePath?: string | null) => {
+    if (!filePath || typeof filePath !== 'string') return ''
+    let trimmed = filePath.trim()
+    if (!trimmed) return ''
+
+    // Strip legacy Cloudinary URLs and resolve to customer_documents
+    if (trimmed.includes('res.cloudinary.com')) {
+      const fileName = trimmed.split('/').pop() || ''
+      trimmed = `customer_documents/${fileName}`
+    }
+
+    if (/^(blob:)/i.test(trimmed)) return trimmed
+    if (/^data:image\/[a-zA-Z+]+;base64,/i.test(trimmed)) return trimmed
+    if (trimmed.startsWith('data:')) return trimmed
+    if (/^[A-Za-z0-9+/=]{80,}$/.test(trimmed) || trimmed.startsWith('/9j/') || trimmed.startsWith('iVBOR')) {
+      const mime = trimmed.startsWith('iVBOR') ? 'image/png' : 'image/jpeg'
+      return `data:${mime};base64,${trimmed}`
+    }
+    if (/^https?:\/\//i.test(trimmed)) return trimmed
+
+    const cleanPath = trimmed.replace(/^\/?(uploads\/)?/, '').replace(/^\/+/, '')
+    const finalPath = cleanPath.startsWith('customer_documents/') ? cleanPath : `customer_documents/${cleanPath}`
+
+    if (typeof window !== 'undefined' && window.location.hostname && window.location.hostname !== 'localhost') {
+      return `https://geetpay.in/${finalPath}`
+    }
+    return `${API_BASE_URL}/${finalPath}`
+  }
   const [fieldReport, setFieldReport] = useState<FieldReport | null>(caseData.fieldReport || null)
-  const reportAssetUrl = (filePath?: string) => filePath
-    ? (/^(https?:|data:|blob:)/i.test(filePath) ? filePath : `${API_BASE_URL}/${filePath.replace(/^\/+/, '')}`)
-    : ''
+  const reportAssetUrl = (filePath?: string) => {
+    if (!filePath) return ''
+    const trimmed = filePath.trim()
+    if (/^(https?:|data:|blob:)/i.test(trimmed)) return trimmed
+    const cleanPath = trimmed.replace(/^\/+/, '')
+    if (typeof window !== 'undefined' && window.location.hostname && window.location.hostname !== 'localhost') {
+      return `https://geetpay.in/${cleanPath}`
+    }
+    return `${API_BASE_URL}/${cleanPath}`
+  }
   const verificationChecklistLabels = [
     'Photo matches applicant face',
     'Name matches application form',
@@ -584,6 +631,13 @@ function CaseDetailDrawer({
     void loadCaseHistory()
   }, [caseData.id, caseData.databaseId])
 
+  const buildCustomerUploadUrl = (token?: string | null) => {
+    if (!token) return ''
+    const origin = window.location.origin
+    const basePath = window.location.pathname.replace(/\/customer-upload\/.*$/i, '').replace(/\/+$/, '')
+    return `${origin}${basePath}/?customer-upload=${token}`
+  }
+
   const createShareLink = async () => {
     if (!selectedRequestDocs.length) { showToast('Select at least one document', 'error'); return }
     try {
@@ -593,7 +647,7 @@ function CaseDetailDrawer({
       })
       const result = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(result.message || 'Unable to create share link')
-      const data = { ...result.data, shareUrl: `${window.location.origin}/customer-upload/${result.data.token}` }
+      const data = { ...result.data, shareUrl: buildCustomerUploadUrl(result.data.token) }
       setDocumentRequest(data)
       setUploadDocumentId(data.documents?.[0]?.id || null)
       showToast('Customer document request created', 'success')
@@ -608,7 +662,7 @@ function CaseDetailDrawer({
     finally { setRequestSaving(false) }
   }
 
-  const shareUrl = documentRequest?.token && (documentRequest.status === 'ACTIVE' || documentRequest.status === 'COMPLETED') ? `${window.location.origin}/customer-upload/${documentRequest.token}` : ''
+  const shareUrl = documentRequest?.token && (documentRequest.status === 'ACTIVE' || documentRequest.status === 'COMPLETED') ? buildCustomerUploadUrl(documentRequest.token) : ''
   const copyShareLink = async () => {
     if (!shareUrl) { showToast('Create an active share link first', 'error'); return }
     await navigator.clipboard.writeText(shareUrl)
@@ -673,8 +727,14 @@ function CaseDetailDrawer({
   const verifyBankPenny = async () => {
     try {
       setBankPennySaving(true)
-      const response = await fetch(`${API_BASE_URL}/api/fcu/auth/cases/${caseData.databaseId || caseData.id}/bank-penny-verification`, {
-        method: 'POST', credentials: 'include',
+      const currentBank = caseData.ekycDetails?.bank || {}
+      const response = await fcuFetch(`/api/fcu/auth/cases/${caseData.databaseId || caseData.id}/bank-penny-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountNumber: currentBank.accountNumber,
+          ifscCode: currentBank.ifscCode,
+        }),
       })
       const result = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(result.message || 'Unable to verify bank account')
@@ -688,14 +748,18 @@ function CaseDetailDrawer({
         nameAtBank: verification.name_at_bank || 'N/A',
         utr: verification.utr || 'N/A',
         amountDeposited: verification.amount_deposited == null ? 'N/A' : `₹${Number(verification.amount_deposited).toFixed(2)}`,
-        accountNumber: verification.account_number ? String(verification.account_number).replace(/\s/g, '') : caseData.ekycDetails?.bank?.accountNumber || 'N/A',
-        ifscCode: verification.ifsc_code || 'N/A',
+        accountNumber: verification.account_number ? String(verification.account_number).replace(/\s/g, '') : currentBank.accountNumber || 'N/A',
+        ifscCode: verification.ifsc_code || currentBank.ifscCode || 'N/A',
         message: apiData.message || 'N/A', status: 'Verified',
         providerData: apiData.provider_data || {},
       }
       onCaseUpdate(caseData.id, { ekycDetails: { ...caseData.ekycDetails!, bankPenny } })
       showToast('Bank account verified and saved', 'success')
-    } catch (error) { showToast(error instanceof Error ? error.message : 'Unable to verify bank account', 'error') }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unable to verify bank account'
+      const hindiWarning = '⚠️ Ye insan chor ho sakta hai! Bank Account ya IFSC code galat hai.'
+      showToast(msg.includes('chor') ? msg : `${hindiWarning} (${msg})`, 'error')
+    }
     finally { setBankPennySaving(false) }
   }
   const fetchMobileBankDetails = async () => {
@@ -781,15 +845,18 @@ function CaseDetailDrawer({
     if (!email || email === 'N/A') { showToast('Corporate email is not available', 'error'); return }
     try {
       setCorporateEmailSaving(true)
-      const response = await fetch(`${API_BASE_URL}/api/fcu/auth/cases/${caseData.databaseId || caseData.id}/corporate-email-verification`, {
-        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      const response = await fcuFetch(`/api/fcu/auth/cases/${caseData.databaseId || caseData.id}/corporate-email-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
       })
       const result = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(result.message || 'Unable to verify corporate email')
       const verification = result.data || null
       setCorporateEmailVerification(verification)
       onCaseUpdate(caseData.id, { corporateEmailVerification: verification })
-      showToast(verification?.isVerified ? 'Corporate email verified' : 'Corporate email is not verified', verification?.isVerified ? 'success' : 'error')
+      const isOk = verification?.status === 'VALID'
+      const toastType = isOk ? 'success' : verification?.status === 'INVALID' ? 'error' : 'info'
+      showToast(verification?.reason || (isOk ? 'Corporate email verified' : 'Corporate email check completed'), toastType)
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Unable to verify corporate email', 'error')
     } finally { setCorporateEmailSaving(false) }
@@ -863,7 +930,7 @@ function CaseDetailDrawer({
         })
         const createResult = await createRes.json().catch(() => ({}))
         if (!createRes.ok) throw new Error(createResult.message || 'Unable to activate document request')
-        activeRequest = { ...createResult.data, shareUrl: `${window.location.origin}/customer-upload/${createResult.data.token}` }
+        activeRequest = { ...createResult.data, shareUrl: buildCustomerUploadUrl(createResult.data.token) }
         setDocumentRequest(activeRequest)
       }
 
@@ -983,7 +1050,7 @@ function CaseDetailDrawer({
 
   const updateCheckStatus = async (checkId: string, status: CheckStatus) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/fcu/auth/cases/${caseData.databaseId || caseData.id}/ekyc/${checkId}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, credentials:'include', body:JSON.stringify({status}) })
+      const response = await fetch(`${API_BASE_URL}/api/fcu/auth/cases/${caseData.databaseId || caseData.id}/ekyc/${checkId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ status }) })
       const result = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(result.message || 'Unable to save eKYC review')
       const updated = checks.map(c => c.id === checkId ? { ...c, status } : c)
@@ -1042,41 +1109,41 @@ function CaseDetailDrawer({
       newStatus = result.data.caseStatus || newStatus
       setWorkflowStage(result.data.workflowStage)
       void loadCaseHistory()
-    if (newStatus) {
-      setCaseStatus(newStatus)
-      onCaseUpdate(caseData.id, { status: newStatus })
-      const newRemarks = [...remarks, `[${new Date().toLocaleTimeString()}] System: Case ${action} by FCU Officer Rahul Sharma`]
-      setRemarks(newRemarks)
-      const fieldVerificationReport = result.data.workflowStage === 'FIELD_ASSIGNED' ? {
-        status: 'PENDING' as const,
-        requestedOn: new Date().toLocaleDateString('en-IN'),
-        assignedOfficer: result.data.fieldAssignedTo || 'Field Verification Team',
-        visitDate: 'To be scheduled',
-        summary: 'Case assigned to the field verification team.',
-        result: 'Pending field verification',
-        nextAction: 'Await field officer report.',
-      } : caseData.fieldVerificationReport
-      onCaseUpdate(caseData.id, { status: newStatus, workflowStage: result.data.workflowStage, remarks: newRemarks, fieldVerificationReport })
-      if (action === 'Send to Credit Team') onMoveToCredit()
-      if (action === 'Hold Case') onMoveToHold()
-      if ((action === 'Reject Case' || action === 'Flag as Fraud') && result.data.whatsapp?.sent === false) {
-        showToast(`Case rejected, but WhatsApp failed: ${result.data.whatsapp.message}`, 'error')
-      } else if ((action === 'Reject Case' || action === 'Flag as Fraud') && result.data.whatsapp?.sent) {
-        showToast(action === 'Flag as Fraud' ? 'Fraud flag and permanent ban saved; WhatsApp sent' : 'Case rejected and WhatsApp message sent', 'success')
-      } else {
-        showToast(`${action} — case status updated`, action.includes('Reject') || action === 'Hold Case' ? 'error' : 'success')
+      if (newStatus) {
+        setCaseStatus(newStatus)
+        onCaseUpdate(caseData.id, { status: newStatus })
+        const newRemarks = [...remarks, `[${new Date().toLocaleTimeString()}] System: Case ${action} by ${currentReviewerLabel}`]
+        setRemarks(newRemarks)
+        const fieldVerificationReport = result.data.workflowStage === 'FIELD_ASSIGNED' ? {
+          status: 'PENDING' as const,
+          requestedOn: new Date().toLocaleDateString('en-IN'),
+          assignedOfficer: result.data.fieldAssignedTo || 'Field Verification Team',
+          visitDate: 'To be scheduled',
+          summary: 'Case assigned to the field verification team.',
+          result: 'Pending field verification',
+          nextAction: 'Await field officer report.',
+        } : caseData.fieldVerificationReport
+        onCaseUpdate(caseData.id, { status: newStatus, workflowStage: result.data.workflowStage, remarks: newRemarks, fieldVerificationReport })
+        if (action === 'Send to Credit Team') onMoveToCredit()
+        if (action === 'Hold Case') onMoveToHold()
+        if ((action === 'Reject Case' || action === 'Flag as Fraud') && result.data.whatsapp?.sent === false) {
+          showToast(`Case rejected, but WhatsApp failed: ${result.data.whatsapp.message}`, 'error')
+        } else if ((action === 'Reject Case' || action === 'Flag as Fraud') && result.data.whatsapp?.sent) {
+          showToast(action === 'Flag as Fraud' ? 'Fraud flag and permanent ban saved; WhatsApp sent' : 'Case rejected and WhatsApp message sent', 'success')
+        } else {
+          showToast(`${action} — case status updated`, action.includes('Reject') || action === 'Hold Case' ? 'error' : 'success')
+        }
+
+        // If a document was specifically flagged as fraud, update its local status
+        if (action === 'Flag as Fraud' && fraudSourceDocument) {
+          const updatedDocs = docs.map(d => d.id === fraudSourceDocument.id ? { ...d, status: 'REJECTED' as DocStatus } : d)
+          setDocs(updatedDocs)
+          onCaseUpdate(caseData.id, { docs: updatedDocs })
+
+          // Also fire off a document status update to the backend just in case
+          void updateDocStatus(fraudSourceDocument.id, 'REJECTED', actionReason.trim())
+        }
       }
-      
-      // If a document was specifically flagged as fraud, update its local status
-      if (action === 'Flag as Fraud' && fraudSourceDocument) {
-        const updatedDocs = docs.map(d => d.id === fraudSourceDocument.id ? { ...d, status: 'REJECTED' as DocStatus } : d)
-        setDocs(updatedDocs)
-        onCaseUpdate(caseData.id, { docs: updatedDocs })
-        
-        // Also fire off a document status update to the backend just in case
-        void updateDocStatus(fraudSourceDocument.id, 'REJECTED', actionReason.trim())
-      }
-    }
       setConfirmAction(null)
       setFraudSourceDocument(null)
       setDocumentRejectTarget(null)
@@ -1089,7 +1156,7 @@ function CaseDetailDrawer({
   }
 
   const docsApproved = docs.filter(d => d.status === 'APPROVED').length
-  const docsPending  = docs.filter(d => d.status === 'PENDING').length
+  const docsPending = docs.filter(d => d.status === 'PENDING').length
   const allDocsApproved = docs.length === 0 || docs.every(d => d.status === 'APPROVED')
   const allEkycChecksPassed = checks.length === 0 || checks.every(check => check.status === 'PASS')
   const canInitialDecision = workflowStage === 'DOCUMENT_REVIEW' && allDocsApproved && allEkycChecksPassed
@@ -1100,8 +1167,8 @@ function CaseDetailDrawer({
   const canFinalDecision = workflowStage === 'FIELD_WAIVED'
     || (workflowStage === 'FIELD_ASSIGNED' && fieldReportComplete)
   const documentActionsLocked = workflowStage !== 'DOCUMENT_REVIEW'
-  const checksPass   = checks.filter(c => c.status === 'PASS').length
-  const checksFail   = checks.filter(c => c.status === 'FAIL').length
+  const checksPass = checks.filter(c => c.status === 'PASS').length
+  const checksFail = checks.filter(c => c.status === 'FAIL').length
   const verificationReport = caseData.fieldVerificationReport ?? buildVerificationReport(caseStatus)
   const reportOfficerName = fieldReport?.officerName
     || fieldReport?.fieldOfficerName
@@ -1119,13 +1186,13 @@ function CaseDetailDrawer({
     || 'N/A'
 
   const tabDefs = [
-    { key: 'loan',     label: 'Application' },
-    { key: 'docs',     label: `Documents (${docsApproved}/${docs.length})` },
+    { key: 'loan', label: 'Application' },
+    { key: 'docs', label: `Documents (${docsApproved}/${docs.length})` },
     { key: 'personal', label: 'Personal' },
-    { key: 'aadhaar',  label: 'Aadhaar' },
-    { key: 'fcu',      label: `eKYC` },
-    { key: 'credit',   label: 'Credit Bureau' },
-    { key: 'field',    label: 'Field Details' },
+    { key: 'aadhaar', label: 'Aadhaar' },
+    { key: 'fcu', label: `eKYC` },
+    { key: 'credit', label: 'Credit Bureau' },
+    { key: 'field', label: 'Field Details' },
     // { key: 'history',  label: `History (${history.length})` },
   ] as const
   const referenceRows = caseData.references || []
@@ -1227,79 +1294,193 @@ function CaseDetailDrawer({
         </div>
 
         <div className="bg-slate-50 px-5 py-4 border-b border-slate-200 shrink-0">
-          <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)]">
-            <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1.15fr)]">
+            {/* Customer Snapshot */}
+            <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
               <div className="flex items-center justify-between gap-3 mb-3">
                 <div>
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-gray-500">Customer Snapshot</div>
-                  <div className="text-xl font-semibold text-gray-800">Schedule callback and verify commitment</div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">FCU Verification Snapshot</div>
+                  <div className="text-base sm:text-lg font-bold text-slate-800 mt-0.5">
+                    {caseData.status === 'SENT_TO_CREDIT' || caseData.status === 'FORWARDED_CREDIT'
+                      ? 'Forwarded to Credit Team'
+                      : caseData.status === 'APPROVED'
+                      ? 'Case Approved by FCU'
+                      : caseData.status === 'DISBURSED'
+                      ? 'Loan Sanctioned & Disbursed'
+                      : caseData.status === 'HOLD'
+                      ? 'Application Placed on Hold'
+                      : caseData.status === 'REJECTED'
+                      ? 'Application Rejected'
+                      : 'FCU Fraud & Identity Verification'}
+                  </div>
                 </div>
-                <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase">Ready for follow-up</span>
+                <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase border ${
+                  caseData.status === 'APPROVED' || caseData.status === 'DISBURSED'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : caseData.status === 'SENT_TO_CREDIT' || caseData.status === 'FORWARDED_CREDIT'
+                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                    : caseData.status === 'HOLD'
+                    ? 'bg-amber-50 text-amber-700 border-amber-200'
+                    : caseData.status === 'REJECTED'
+                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                }`}>
+                  {caseData.status === 'SENT_TO_CREDIT' || caseData.status === 'FORWARDED_CREDIT'
+                    ? 'Credit Team Queue'
+                    : caseData.status === 'APPROVED'
+                    ? 'FCU Approved'
+                    : caseData.status === 'DISBURSED'
+                    ? 'Disbursed'
+                    : caseData.status === 'HOLD'
+                    ? 'On Hold'
+                    : caseData.status === 'REJECTED'
+                    ? 'Rejected'
+                    : 'Ready for Review'}
+                </span>
               </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div className="rounded border border-gray-200 bg-gray-50 p-3">
-                  <div className="text-[10px] font-semibold uppercase text-gray-500">Priority</div>
-                  <div className="mt-1 text-[14px] font-semibold text-gray-800">High</div>
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+                <div className="rounded-xl border border-gray-200 bg-slate-50/70 p-2.5">
+                  <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Source</div>
+                  <div className="mt-0.5 text-xs font-bold text-slate-800 truncate">
+                    {caseData.forwardedBy ? `Telecaller (${caseData.forwardedBy})` : (caseData.website || 'Direct App')}
+                  </div>
                 </div>
-                
-                <div className="rounded border border-gray-200 bg-gray-50 p-3">
-                  <div className="text-[10px] font-semibold uppercase text-gray-500">Channel</div>
-                  <div className="mt-1 text-[14px] font-semibold text-gray-800">Website</div>
+                <div className="rounded-xl border border-gray-200 bg-slate-50/70 p-2.5">
+                  <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">City / Branch</div>
+                  <div className="mt-0.5 text-xs font-bold text-slate-800 truncate">
+                    {caseData.city || caseData.branch || 'N/A'}
+                  </div>
                 </div>
-                <div className="rounded border border-gray-200 bg-gray-50 p-3">
-                  <div className="text-[10px] font-semibold uppercase text-gray-500">City</div>
-                  <div className="mt-1 text-[14px] font-semibold text-gray-800">{caseData.city}</div>
+                <div className="rounded-xl border border-gray-200 bg-slate-50/70 p-2.5">
+                  <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Documents</div>
+                  <div className="mt-0.5 text-xs font-bold text-emerald-700 font-mono">
+                    {docs.filter(d => d.status === 'APPROVED').length}/{docs.length} Verified
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-lg p-4">
-              <div className="flex items-center justify-between gap-2 mb-4">
-                <div className="text-[11px] font-bold uppercase tracking-wide text-gray-500">Case Progress</div>
-                <div className="text-[11px] text-gray-500">Follow-up / Conversion</div>
+            {/* Case Progress (Real Pipeline) */}
+            <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Case Progress & Workflow Stages</div>
+                <span className="text-[10px] font-bold font-mono text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                  Stage {['DISBURSED'].includes(caseData.status) ? '6/6' : ['SENT_TO_CREDIT', 'FORWARDED_CREDIT'].includes(caseData.status) ? '5/6' : fieldReport ? '4/6' : ['APPROVED'].includes(caseData.status) ? '3/6' : docs.length > 0 ? '2/6' : '1/6'}
+                </span>
               </div>
 
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {[
-                    { label: 'Application Submitted', active: true },
-                    { label: 'Documents Received', active: true },
-                    { label: 'Qualification', active: true },
-                    { label: 'Follow-up / Conversion', active: true },
-                    { label: 'Verification in Progress', active: true },
-                    { label: 'Credit Assessment', active: false },
-                    { label: 'Under Review / Underwriting', active: false },
-                    { label: 'Approved / Sanctioned', active: false },
-                    { label: 'Agreement Signing', active: false },
-                    { label: 'Disbursement in Process', active: false },
-                    { label: 'Disbursed', active: false },
-                  ].map((step, index) => (
-                    <div key={`${step.label}-${index}`} className="space-y-1.5">
-                      <div className={`h-1.5 rounded-full ${step.active ? 'bg-emerald-500' : 'bg-gray-200'}`} />
-                      <div className={`text-[10px] ${step.active ? 'text-emerald-700 font-semibold' : 'text-gray-500'}`}>{step.label}</div>
+              {(() => {
+                const isSentCredit = ['SENT_TO_CREDIT', 'FORWARDED_CREDIT', 'DISBURSED'].includes(caseData.status)
+                const isApproved = ['APPROVED', 'SENT_TO_CREDIT', 'FORWARDED_CREDIT', 'DISBURSED'].includes(caseData.status)
+                const isDisbursed = caseData.status === 'DISBURSED'
+                const isHold = ['HOLD', 'ON_HOLD'].includes(caseData.status)
+                const isRejected = ['REJECTED', 'FORWARDED_REJECT', 'CLOSED'].includes(caseData.status)
+                const hasDocs = docs.length > 0
+                const hasField = Boolean(fieldReport?.outcome || caseData.fieldReport)
+
+                const steps = [
+                  { label: '1. Telecaller Approved', active: true, done: true },
+                  { label: '2. Documents Uploaded', active: true, done: hasDocs },
+                  { label: '3. FCU Approved', active: true, done: isApproved, hold: isHold, reject: isRejected },
+                  { label: '4. Field Verification', active: true, done: hasField },
+                  { label: '5. Sent to Credit', active: isSentCredit, done: isSentCredit },
+                  { label: '6. Disbursed', active: isDisbursed, done: isDisbursed },
+                ]
+
+                return (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                      {steps.map(step => (
+                        <div key={step.label} className="space-y-1">
+                          <div className={`h-1.5 rounded-full transition-all ${
+                            step.reject
+                              ? 'bg-rose-500'
+                              : step.hold
+                              ? 'bg-amber-500'
+                              : step.done
+                              ? 'bg-emerald-500'
+                              : 'bg-slate-200'
+                          }`} />
+                          <div className={`text-[10px] truncate ${
+                            step.reject
+                              ? 'text-rose-700 font-bold'
+                              : step.hold
+                              ? 'text-amber-700 font-bold'
+                              : step.done
+                              ? 'text-emerald-700 font-bold'
+                              : 'text-slate-400 font-medium'
+                          }`}>
+                            {step.label}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
 
-                <div className="text-[11px] text-emerald-700 font-semibold">
-                  Verify KYC and schedule the next call based on the current lead stage.
-                </div>
-              </div>
+                    <div className="text-[11px] font-semibold flex items-center gap-1.5 pt-1 border-t border-slate-100">
+                      <span className="text-sm">
+                        {isDisbursed ? '🎉' : isSentCredit ? '🚀' : caseData.status === 'APPROVED' ? '✓' : isHold ? '⏸' : isRejected ? '✕' : '🔍'}
+                      </span>
+                      <span className={
+                        isDisbursed
+                          ? 'text-emerald-700'
+                          : isSentCredit
+                          ? 'text-blue-700'
+                          : caseData.status === 'APPROVED'
+                          ? 'text-emerald-700'
+                          : isHold
+                          ? 'text-amber-700'
+                          : isRejected
+                          ? 'text-rose-700'
+                          : 'text-slate-600'
+                      }>
+                        {isDisbursed
+                          ? 'Loan successfully disbursed to customer bank account.'
+                          : isSentCredit
+                          ? 'Case successfully forwarded to Credit Team for loan sanctioning.'
+                          : caseData.status === 'APPROVED'
+                          ? 'Case approved by FCU. Click "Send to Credit" button to forward to Credit Team.'
+                          : isHold
+                          ? 'Case on hold pending customer clarification or extra documents.'
+                          : isRejected
+                          ? 'Application rejected by FCU verification team.'
+                          : 'Verify customer documents & eKYC checks, then approve or forward case to Credit Team.'}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="rounded border border-gray-200 bg-white p-3">
-              <div className="text-[10px] font-semibold uppercase text-gray-500">Lead Stage</div>
-              <div className="mt-1 text-[14px] font-semibold text-gray-800">Follow Up</div>
+          {/* Bottom 3 Stage Parameters */}
+          <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+            <div className="rounded-xl border border-gray-200 bg-white p-2.5 shadow-xs">
+              <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Workflow Stage</div>
+              <div className="mt-0.5 text-xs font-bold text-slate-800">
+                {caseData.status === 'SENT_TO_CREDIT' || caseData.status === 'FORWARDED_CREDIT'
+                  ? 'Credit Underwriting Queue'
+                  : caseData.status === 'APPROVED'
+                  ? 'FCU Sanction Approved'
+                  : caseData.status === 'DISBURSED'
+                  ? 'Disbursement Complete'
+                  : caseData.status === 'HOLD'
+                  ? 'On Hold'
+                  : caseData.status === 'REJECTED'
+                  ? 'Closed / Rejected'
+                  : 'FCU Verification Review'}
+              </div>
             </div>
-            <div className="rounded border border-gray-200 bg-white p-3">
-              <div className="text-[10px] font-semibold uppercase text-gray-500">Follow-up Mode</div>
-              <div className="mt-1 text-[14px] font-semibold text-gray-800">Standard</div>
+            <div className="rounded-xl border border-gray-200 bg-white p-2.5 shadow-xs">
+              <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">FCU Reviewer</div>
+              <div className="mt-0.5 text-xs font-bold text-slate-800">
+                {currentReviewerLabel}
+              </div>
             </div>
-            <div className="rounded border border-gray-200 bg-white p-3">
-              <div className="text-[10px] font-semibold uppercase text-gray-500">Service Line</div>
-              <div className="mt-1 text-[14px] font-semibold text-gray-800">Personal Loan</div>
+            <div className="rounded-xl border border-gray-200 bg-white p-2.5 shadow-xs">
+              <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Product / Service Line</div>
+              <div className="mt-0.5 text-xs font-bold text-slate-800">
+                {caseData.serviceLine || 'Personal Loan'}
+              </div>
             </div>
           </div>
         </div>
@@ -1310,11 +1491,10 @@ function CaseDetailDrawer({
             <button
               key={t.key}
               onClick={() => setActiveTab(t.key)}
-              className={`px-4 py-2.5 text-[11px] font-semibold whitespace-nowrap transition-all rounded-t-lg border-b-2 ${
-                activeTab === t.key
-                  ? 'border-slate-800 text-slate-900 bg-gradient-to-b from-slate-100 to-white shadow-sm'
-                  : 'border-transparent text-gray-500 hover:text-slate-700 hover:bg-slate-50'
-              }`}
+              className={`px-4 py-2.5 text-[11px] font-semibold whitespace-nowrap transition-all rounded-t-lg border-b-2 ${activeTab === t.key
+                ? 'border-slate-800 text-slate-900 bg-gradient-to-b from-slate-100 to-white shadow-sm'
+                : 'border-transparent text-gray-500 hover:text-slate-700 hover:bg-slate-50'
+                }`}
             >
               {t.label}
             </button>
@@ -1346,45 +1526,47 @@ function CaseDetailDrawer({
                   <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Alternate Mobile</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.alternateMobile || 'N/A'}</div></div>
                   <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Email Personal</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.email}</div></div>
                   <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Email Office</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.emailOffice || 'N/A'}</div></div>
-                  <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Screened By (FCU)</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{reviewerName || caseData.screenedBy || 'N/A'}</div></div>
+                  <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Screened By (FCU)</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{currentReviewerLabel}</div></div>
                   <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Screened On</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.screenedOn || 'N/A'}</div></div>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
+                {/* Residence Owned (Aadhaar / Permanent) */}
                 <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-3 bg-[#f0f4fa] border-b border-gray-200">
                     <div>
-                      <div className="text-[11px] font-bold uppercase tracking-wide text-[#1e3a5f]">Residence ({caseData.residenceType || 'Owned'})</div>
-                      <div className="text-[11px] text-gray-500">Residential verification details</div>
+                      <div className="text-[11px] font-bold uppercase tracking-wide text-[#1e3a5f]">Residence (Owned)</div>
+                      <div className="text-[11px] text-gray-500">Aadhaar / Permanent residential details</div>
                     </div>
-                    <span className="px-2.5 py-1 rounded-full border border-gray-200 bg-white text-[10px] font-semibold text-gray-600">3 fields</span>
-                  </div>
-                  <div className="grid grid-cols-2 divide-x divide-y divide-gray-200">
-                    <div className="p-3 col-span-2"><div className="text-[10px] font-semibold uppercase text-gray-500">Address Line 1</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.residenceAddressLine1 || caseData.address}</div></div>
-                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Address Line 2</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.residenceAddressLine2 || caseData.city}</div></div>
-                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">City</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.city}</div></div>
-                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">State</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.state}</div></div>
-                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Pincode</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.pincode}</div></div>
-                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Residence Type</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.residenceType || 'Owned'}</div></div>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-3 bg-[#f0f4fa] border-b border-gray-200">
-                    <div>
-                      <div className="text-[11px] font-bold uppercase tracking-wide text-[#1e3a5f]">Residence ({caseData.secondaryResidenceType || 'Rented'})</div>
-                      <div className="text-[11px] text-gray-500">Secondary residency evidence</div>
-                    </div>
-                    <span className="px-2.5 py-1 rounded-full border border-gray-200 bg-white text-[10px] font-semibold text-gray-600">3 fields</span>
+                    <span className="px-2.5 py-1 rounded-full border border-emerald-200 bg-emerald-50 text-[10px] font-bold text-emerald-700">Aadhaar Match</span>
                   </div>
                   <div className="grid grid-cols-2 divide-x divide-y divide-gray-200">
                     <div className="p-3 col-span-2"><div className="text-[10px] font-semibold uppercase text-gray-500">Address Line 1</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.secondaryResidenceAddressLine1 || caseData.address || 'N/A'}</div></div>
                     <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Address Line 2</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.secondaryResidenceAddressLine2 || caseData.secondaryResidenceCity || caseData.city || 'N/A'}</div></div>
                     <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">City</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.secondaryResidenceCity || caseData.city || 'N/A'}</div></div>
                     <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">State</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.secondaryResidenceState || caseData.state || 'N/A'}</div></div>
-                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Pincode</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.secondaryResidencePincode || caseData.pincode || 'N/A'}</div></div>
-                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Residence Type</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.secondaryResidenceType || 'Rented'}</div></div>
+                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Pincode</div><div className="mt-1 text-[13px] font-semibold text-gray-800 font-mono">{caseData.secondaryResidencePincode || caseData.pincode || 'N/A'}</div></div>
+                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Residence Type</div><div className="mt-1 text-[13px] font-semibold text-emerald-700 font-bold">Owned</div></div>
+                  </div>
+                </div>
+
+                {/* Residence Rented (Current / Declared) */}
+                <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 bg-[#f0f4fa] border-b border-gray-200">
+                    <div>
+                      <div className="text-[11px] font-bold uppercase tracking-wide text-[#1e3a5f]">Residence (Rented)</div>
+                      <div className="text-[11px] text-gray-500">Current / Rented residency evidence</div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full border border-blue-200 bg-blue-50 text-[10px] font-bold text-blue-700">Current Address</span>
+                  </div>
+                  <div className="grid grid-cols-2 divide-x divide-y divide-gray-200">
+                    <div className="p-3 col-span-2"><div className="text-[10px] font-semibold uppercase text-gray-500">Address Line 1</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.residenceAddressLine1 || caseData.address || 'N/A'}</div></div>
+                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Address Line 2</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.residenceAddressLine2 || caseData.city || 'N/A'}</div></div>
+                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">City</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.city || 'N/A'}</div></div>
+                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">State</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.state || 'N/A'}</div></div>
+                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Pincode</div><div className="mt-1 text-[13px] font-semibold text-gray-800 font-mono">{caseData.pincode || 'N/A'}</div></div>
+                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Residence Type</div><div className="mt-1 text-[13px] font-semibold text-amber-700 font-bold">Rented</div></div>
                   </div>
                 </div>
               </div>
@@ -1411,17 +1593,26 @@ function CaseDetailDrawer({
                       <div className="min-w-0">
                         <div className="text-[10px] font-semibold uppercase text-gray-500">Corporate Email</div>
                         <div className="mt-1 break-all text-[13px] font-semibold text-gray-800">{caseData.emailOffice || caseData.email || 'N/A'}</div>
-                        {corporateEmailVerification?.reason && (
-                          <div className={`mt-1 text-[10px] font-medium ${corporateEmailVerification.isVerified ? 'text-emerald-700' : 'text-red-600'}`}>
-                            {corporateEmailVerification.reason}
-                          </div>
-                        )}
                       </div>
                       <div className="flex shrink-0 items-center gap-2 sm:ml-2">
                         {corporateEmailVerification && (
-                          <span className={`rounded-full border px-3 py-1.5 text-[10px] font-bold ${corporateEmailVerification.isVerified ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'}`}>
-                            {corporateEmailVerification.isVerified ? '✓ Verified' : '✕ Not Verified'}
-                          </span>
+                          corporateEmailVerification.status === 'VALID' ? (
+                            <span className="bg-emerald-50 text-emerald-700 border border-emerald-300 px-2.5 py-1 rounded-md text-[10px] font-bold shadow-xs">
+                              ✓ VALID (Mailbox Verified)
+                            </span>
+                          ) : corporateEmailVerification.status === 'CATCH_ALL' ? (
+                            <span className="bg-amber-50 text-amber-700 border border-amber-300 px-2.5 py-1 rounded-md text-[10px] font-bold shadow-xs">
+                              ⚠️ CATCH-ALL (Domain Valid)
+                            </span>
+                          ) : corporateEmailVerification.status === 'UNKNOWN' ? (
+                            <span className="bg-slate-100 text-slate-700 border border-slate-300 px-2.5 py-1 rounded-md text-[10px] font-bold shadow-xs">
+                              ℹ️ UNVERIFIED (SMTP Protected)
+                            </span>
+                          ) : (
+                            <span className="bg-rose-50 text-rose-700 border border-rose-300 px-2.5 py-1 rounded-md text-[10px] font-bold shadow-xs">
+                              ❌ INVALID (Mailbox Not Found)
+                            </span>
+                          )
                         )}
                         <button
                           type="button"
@@ -1512,7 +1703,13 @@ function CaseDetailDrawer({
                   <div className="grid grid-cols-2 divide-x divide-y divide-gray-200">
                     <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Lead Reference No</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.leadReferenceNo || caseData.ref}</div></div>
                     <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">CIF No</div><div className="mt-1 text-[13px] font-semibold text-gray-800">N/A</div></div>
-                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Title</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.title || 'MR'}</div></div>
+                    <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Title</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{(() => {
+                      const g = String(caseData.gender || caseData.ekycDetails?.aadhaar?.gender || '').trim().toUpperCase()
+                      const isF = g === 'FEMALE' || g === 'F'
+                      const isM = String(caseData.maritalStatus || '').trim().toUpperCase() === 'MARRIED'
+                      if (caseData.title && caseData.title !== 'MR') return String(caseData.title).toUpperCase()
+                      return isF ? (isM ? 'MRS' : 'MS') : 'MR'
+                    })()}</div></div>
                     <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">First Name</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.firstName || caseData.borrower.split(' ')[0]}</div></div>
                     <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">DOB</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.dob}</div></div>
                     <div className="p-3"><div className="text-[10px] font-semibold uppercase text-gray-500">Religion</div><div className="mt-1 text-[13px] font-semibold text-gray-800">{caseData.religion || 'HINDU'}</div></div>
@@ -1739,17 +1936,15 @@ function CaseDetailDrawer({
                           return (
                             <div
                               key={docName}
-                              className={`p-3 rounded-xl border transition-all ${
-                                isUploaded
-                                  ? 'bg-emerald-50/30 border-emerald-200 hover:border-emerald-300'
-                                  : 'bg-white border-slate-200 hover:border-blue-300 shadow-sm'
-                              }`}
+                              className={`p-3 rounded-xl border transition-all ${isUploaded
+                                ? 'bg-emerald-50/30 border-emerald-200 hover:border-emerald-300'
+                                : 'bg-white border-slate-200 hover:border-blue-300 shadow-sm'
+                                }`}
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-2.5 min-w-0">
-                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm shrink-0 ${
-                                    isUploaded ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
-                                  }`}>
+                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm shrink-0 ${isUploaded ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                                    }`}>
                                     {getDocIcon(docName)}
                                   </div>
                                   <div className="min-w-0">
@@ -1792,9 +1987,8 @@ function CaseDetailDrawer({
                                 </div>
 
                                 <div className="flex items-center gap-1.5 shrink-0">
-                                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                                    isUploaded ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                                  }`}>
+                                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${isUploaded ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                                    }`}>
                                     {isUploaded ? '✓ Uploaded' : '⏳ Pending'}
                                   </span>
 
@@ -1809,13 +2003,12 @@ function CaseDetailDrawer({
                                     </a>
                                   )}
 
-                                  <label className={`cursor-pointer px-3 py-1.5 rounded-lg text-[10px] font-bold transition flex items-center gap-1 shadow-sm ${
-                                    isDocSaving
-                                      ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
-                                      : isUploaded
+                                  <label className={`cursor-pointer px-3 py-1.5 rounded-lg text-[10px] font-bold transition flex items-center gap-1 shadow-sm ${isDocSaving
+                                    ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                                    : isUploaded
                                       ? 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
                                       : 'bg-[#1e3a5f] hover:bg-blue-700 text-white shadow-blue-500/10'
-                                  }`}>
+                                    }`}>
                                     <input
                                       type="file"
                                       accept=".pdf,image/jpeg,image/png,image/webp"
@@ -1890,22 +2083,34 @@ function CaseDetailDrawer({
                 ) : (
                   <div className="max-h-[350px] overflow-y-auto divide-y divide-gray-100">
                     {history.map((item: any, idx: number) => {
-                      const performedByName = item.performedBy || item.performed_by_name || 'System';
+                      const isAppCreated = (item.eventType || item.event_type || item.type) === 'APPLICATION_CREATED' || String(item.title || '').toLowerCase().includes('application submitted');
+                      const telecallerFallback = caseData?.forwardedBy && caseData.forwardedBy !== 'N/A'
+                        ? caseData.forwardedBy
+                        : (caseData?.assignedTo && caseData.assignedTo !== 'N/A' ? caseData.assignedTo : (caseData?.rm && caseData.rm !== 'Unassigned' ? caseData.rm : 'Telecaller'));
+
+                      const performedByName = (item.performedBy && item.performedBy !== 'System')
+                        ? item.performedBy
+                        : (isAppCreated ? telecallerFallback : (item.performed_by_name || 'System'));
+
+                      const role = item.role
+                        ? item.role
+                        : (isAppCreated ? 'Telecaller' : (item.performedBy && item.performedBy !== 'System' ? 'FCU Reviewer' : 'System'));
+
                       const t = (String(item.title || '') + ' ' + String(item.eventType || item.event_type || '')).toLowerCase();
 
                       const isApproved = t.includes('approve') || t.includes('pass');
                       const isRejected = t.includes('reject') || t.includes('fraud') || t.includes('fail');
-                      const isCreated = t.includes('created') || t.includes('create');
+                      const isCreated = t.includes('created') || t.includes('create') || t.includes('submit');
                       const isDisabled = t.includes('disabled') || t.includes('disable') || t.includes('close');
                       const isWhatsApp = t.includes('whatsapp') || t.includes('message');
 
                       const dotColor =
                         isApproved ? 'bg-emerald-500' :
-                        isRejected ? 'bg-rose-500' :
-                        isDisabled ? 'bg-amber-500' :
-                        isCreated ? 'bg-blue-600' :
-                        isWhatsApp ? 'bg-green-600' :
-                        'bg-slate-400';
+                          isRejected ? 'bg-rose-500' :
+                            isDisabled ? 'bg-amber-500' :
+                              isCreated ? 'bg-blue-600' :
+                                isWhatsApp ? 'bg-green-600' :
+                                  'bg-slate-400';
 
                       return (
                         <div key={item.id || idx} className="px-4 py-2.5 hover:bg-slate-50/70 transition-colors flex items-start gap-3">
@@ -1915,11 +2120,11 @@ function CaseDetailDrawer({
                             <div className="flex items-center justify-between gap-2 flex-wrap">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-bold text-xs text-gray-900">
-                                  {item.title || item.eventType || 'Activity Event'}
+                                  {isAppCreated && !String(item.title || '').includes('Telecaller') ? 'Application submitted by Telecaller' : (item.title || item.eventType || 'Activity Event')}
                                 </span>
                                 <span className="text-[10px] text-gray-500">
                                   by <strong className="text-gray-700">{performedByName}</strong>
-                                  <span className="text-gray-400"> · {item.role || 'FCU Reviewer'}</span>
+                                  <span className="text-gray-400"> · {role}</span>
                                 </span>
                               </div>
 
@@ -2107,11 +2312,10 @@ function CaseDetailDrawer({
 
                             {/* Status */}
                             <td className="px-3 py-2.5 text-center whitespace-nowrap align-middle">
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold ${
-                                isVerified ? 'border-emerald-300 text-emerald-700 bg-emerald-50/70' :
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold ${isVerified ? 'border-emerald-300 text-emerald-700 bg-emerald-50/70' :
                                 isRejected ? 'border-rose-300 text-rose-700 bg-rose-50/70' :
-                                'border-amber-300 text-amber-700 bg-amber-50/70'
-                              }`}>
+                                  'border-amber-300 text-amber-700 bg-amber-50/70'
+                                }`}>
                                 <span className={`h-1.5 w-1.5 rounded-full ${isVerified ? 'bg-emerald-500' : isRejected ? 'bg-rose-500' : 'bg-amber-500'}`}></span>
                                 {isVerified ? 'Verified' : isRejected ? 'Rejected' : 'Pending'}
                               </span>
@@ -2122,9 +2326,8 @@ function CaseDetailDrawer({
                               <div className="flex items-center justify-end gap-1.5">
                                 <button
                                   onClick={() => openDocPreview(doc)}
-                                  className={`px-2.5 py-1 rounded-md border text-[10px] font-bold transition flex items-center gap-1 ${
-                                    isDocViewed ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
-                                  }`}
+                                  className={`px-2.5 py-1 rounded-md border text-[10px] font-bold transition flex items-center gap-1 ${isDocViewed ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                                    }`}
                                 >
                                   {isDocViewed ? '👁 Viewed' : '👁 View'}
                                 </button>
@@ -2134,11 +2337,10 @@ function CaseDetailDrawer({
                                       onClick={() => updateDocStatus(doc.id, 'APPROVED')}
                                       disabled={documentActionsLocked || doc.status === 'APPROVED' || actionSaving || !isDocViewed}
                                       title={!isDocViewed ? 'Pehle View button par click karke document check karein' : 'Verify document'}
-                                      className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition flex items-center gap-1 ${
-                                        !isDocViewed && doc.status !== 'APPROVED'
-                                          ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300 opacity-60'
-                                          : 'bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-30 disabled:cursor-not-allowed'
-                                      }`}
+                                      className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition flex items-center gap-1 ${!isDocViewed && doc.status !== 'APPROVED'
+                                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300 opacity-60'
+                                        : 'bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-30 disabled:cursor-not-allowed'
+                                        }`}
                                     >
                                       ✓ Verify
                                     </button>
@@ -2227,7 +2429,7 @@ function CaseDetailDrawer({
                     <select value={aadhaarRelation} onChange={(event) => setAadhaarRelation(event.target.value)}
                       className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100">
                       <option value="">Select relation</option>
-                      {['SELF','FATHER','MOTHER','SPOUSE','SON','DAUGHTER','BROTHER','SISTER','GUARDIAN','OTHER'].map((relation) => <option key={relation} value={relation}>{relation.charAt(0) + relation.slice(1).toLowerCase()}</option>)}
+                      {['SELF', 'FATHER', 'MOTHER', 'SPOUSE', 'SON', 'DAUGHTER', 'BROTHER', 'SISTER', 'GUARDIAN', 'OTHER'].map((relation) => <option key={relation} value={relation}>{relation.charAt(0) + relation.slice(1).toLowerCase()}</option>)}
                     </select>
                   </label>
                   <button type="button" onClick={saveAadhaarRelation} disabled={relationSaving || !aadhaarRelation || !ekyc?.fetchedAadhaar}
@@ -2321,11 +2523,10 @@ function CaseDetailDrawer({
                       <span>✏️</span>
                       <span>Edit & Verify</span>
                     </button>
-                    <span className={`rounded-full border px-3 py-1 text-[9px] font-bold ${
-                      String(ekyc?.bank?.verificationStatus || '').toLowerCase() === 'verified'
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                        : 'border-amber-200 bg-amber-50 text-amber-700'
-                    }`}>
+                    <span className={`rounded-full border px-3 py-1 text-[9px] font-bold ${String(ekyc?.bank?.verificationStatus || '').toLowerCase() === 'verified'
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                      : 'border-amber-200 bg-amber-50 text-amber-700'
+                      }`}>
                       {String(ekyc?.bank?.verificationStatus || 'Not verified')}
                     </span>
                   </div>
@@ -2476,23 +2677,41 @@ function CaseDetailDrawer({
                   const dbStatus = String(ekyc?.faceMatch?.status || '').trim().toUpperCase()
                   const isMatch = dbStatus ? (dbStatus.includes('MATCH') && !dbStatus.includes('NO')) : score >= 50
                   const confidence = String(ekyc?.faceMatch?.confidence || (score >= 70 ? 'HIGH' : score >= 40 ? 'MEDIUM' : 'LOW')).toUpperCase()
-                  const detailsText = ekyc?.faceMatch?.details || (isMatch
+                  let cleanDetails = ''
+                  const rawDetails = ekyc?.faceMatch?.details
+                  if (rawDetails) {
+                    if (typeof rawDetails === 'object') {
+                      cleanDetails = (rawDetails as any).message || (rawDetails as any).result || ''
+                    } else if (typeof rawDetails === 'string') {
+                      const trimmed = rawDetails.trim()
+                      if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+                        try {
+                          const parsed = JSON.parse(trimmed)
+                          cleanDetails = parsed.message || parsed.result || ''
+                        } catch (e) {
+                          cleanDetails = trimmed
+                        }
+                      } else {
+                        cleanDetails = trimmed
+                      }
+                    }
+                  }
+
+                  const detailsText = cleanDetails || (isMatch
                     ? 'The faces in Image 1 and Image 2 show consistent facial geometry and landmark alignment.'
                     : 'The faces in Image 1 and Image 2 do not appear to belong to the same person.')
 
                   return (
-                    <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm ${
-                      isMatch
-                        ? 'border-emerald-200 bg-emerald-50/40'
-                        : 'border-rose-200 bg-rose-50/40'
-                    }`}>
+                    <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm ${isMatch
+                      ? 'border-emerald-200 bg-emerald-50/40'
+                      : 'border-rose-200 bg-rose-50/40'
+                      }`}>
                       <div className="flex items-center gap-3.5 min-w-0">
                         {/* Score Box */}
-                        <div className={`shrink-0 w-14 h-14 rounded-2xl border flex items-center justify-center font-mono text-lg font-black shadow-xs ${
-                          isMatch
-                            ? 'border-emerald-300 bg-white text-emerald-700'
-                            : 'border-rose-300 bg-white text-rose-700'
-                        }`}>
+                        <div className={`shrink-0 w-14 h-14 rounded-2xl border flex items-center justify-center font-mono text-lg font-black shadow-xs ${isMatch
+                          ? 'border-emerald-300 bg-white text-emerald-700'
+                          : 'border-rose-300 bg-white text-rose-700'
+                          }`}>
                           {score}%
                         </div>
 
@@ -2502,9 +2721,8 @@ function CaseDetailDrawer({
                             <span className={`text-sm font-bold ${isMatch ? 'text-emerald-950' : 'text-rose-950'}`}>
                               {ekyc?.faceMatch?.status || (isMatch ? 'Face Match Verified' : 'No Face Match')}
                             </span>
-                            <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
-                              isMatch ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                            }`}>
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${isMatch ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                              }`}>
                               {confidence} CONFIDENCE
                             </span>
                             <span className="px-2 py-0.5 rounded text-[9px] font-bold text-slate-600 bg-slate-100">
@@ -2556,9 +2774,8 @@ function CaseDetailDrawer({
                             <div className="text-[10px] font-semibold text-slate-500">
                               {factor.title}
                             </div>
-                            <div className={`text-xs font-bold mt-1 ${
-                              isHigh ? 'text-emerald-700' : isMedium ? 'text-amber-700' : 'text-slate-800'
-                            }`}>
+                            <div className={`text-xs font-bold mt-1 ${isHigh ? 'text-emerald-700' : isMedium ? 'text-amber-700' : 'text-slate-800'
+                              }`}>
                               {factor.value}
                             </div>
                           </div>
@@ -2568,34 +2785,21 @@ function CaseDetailDrawer({
                   )
                 })()}
               </div>
-              <Section title="Field Verification Report">
-                <Grid2>
-                  <Field label="Verification Status" value={verificationReport.status} />
-                  <Field label="Requested On" value={verificationReport.requestedOn} />
-                  <Field label="Assigned Officer" value={verificationReport.assignedOfficer} />
-                  <Field label="Visit Date" value={verificationReport.visitDate} />
-                  <Field label="Result" value={verificationReport.result} span />
-                  <Field label="Summary" value={verificationReport.summary} span />
-                  <Field label="Next Action" value={verificationReport.nextAction} span />
-                </Grid2>
-              </Section>
               <div className="flex items-center gap-4 mb-1">
                 <div className="text-[11px]"><span className="font-bold text-emerald-700">{checksPass}</span> <span className="text-gray-500">Pass</span></div>
                 <div className="text-[11px]"><span className="font-bold text-red-600">{checksFail}</span> <span className="text-gray-500">Fail</span></div>
                 <div className="text-[11px]"><span className="font-bold text-amber-600">{checks.filter(c => c.status === 'PENDING').length}</span> <span className="text-gray-500">Pending</span></div>
               </div>
               {checks.map(check => (
-                <div key={check.id} className={`flex items-center justify-between border rounded p-3 ${
-                  check.status === 'PASS' ? 'border-emerald-200 bg-emerald-50/30' :
+                <div key={check.id} className={`flex items-center justify-between border rounded p-3 ${check.status === 'PASS' ? 'border-emerald-200 bg-emerald-50/30' :
                   check.status === 'FAIL' ? 'border-red-200 bg-red-50/30' :
-                  'border-gray-200 bg-gray-50/60'
-                }`}>
+                    'border-gray-200 bg-gray-50/60'
+                  }`}>
                   <div className="flex items-center gap-3">
-                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
-                      check.status === 'PASS' ? 'bg-emerald-100 text-emerald-700' :
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${check.status === 'PASS' ? 'bg-emerald-100 text-emerald-700' :
                       check.status === 'FAIL' ? 'bg-red-100 text-red-700' :
-                      'bg-gray-100 text-gray-500'
-                    }`}>
+                        'bg-gray-100 text-gray-500'
+                      }`}>
                       {check.status === 'PASS' ? '✓' : check.status === 'FAIL' ? '✗' : '?'}
                     </div>
                     <div>
@@ -2608,11 +2812,10 @@ function CaseDetailDrawer({
                       <button
                         key={s}
                         onClick={() => void updateCheckStatus(check.id, s)}
-                        className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors ${
-                          check.status === s
-                            ? s === 'PASS' ? 'bg-emerald-600 text-white' : s === 'FAIL' ? 'bg-red-600 text-white' : 'bg-gray-600 text-white'
-                            : 'border border-gray-200 text-gray-500 hover:bg-gray-100'
-                        }`}
+                        className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors ${check.status === s
+                          ? s === 'PASS' ? 'bg-emerald-600 text-white' : s === 'FAIL' ? 'bg-red-600 text-white' : 'bg-gray-600 text-white'
+                          : 'border border-gray-200 text-gray-500 hover:bg-gray-100'
+                          }`}
                       >
                         {s}
                       </button>
@@ -2824,7 +3027,7 @@ function CaseDetailDrawer({
         ) : (
           <div className="sticky bottom-0 z-40 flex shrink-0 flex-wrap items-center gap-2 border-t border-gray-200 bg-[#f8fafc]/95 px-3 py-2.5 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur sm:px-5 xl:static xl:flex-nowrap xl:gap-3 xl:bg-[#f8fafc] xl:px-5 xl:py-3 xl:shadow-none">
             <div className="w-full min-w-[220px] text-[10px] text-gray-500 xl:w-auto xl:flex-1">
-              Reviewing as: <span className="font-semibold text-gray-700">Rahul Sharma (FCU Manager)</span>
+              Reviewing as: <span className="font-semibold text-gray-700">{currentReviewerLabel}</span>
               {' · '} Current: <StatusBadge status={caseStatus} />
             </div>
             <button
@@ -2916,36 +3119,36 @@ function CaseDetailDrawer({
                     <div>
                       {!isReadOnly && previewDocument?.id && previewDocument?.status !== 'APPROVED' && (
                         <>
-                        <button
-                          onClick={() => {
-                            void updateDocStatus(previewDocument.id, 'APPROVED')
-                            setPreviewDocument(null)
-                          }}
-                          className="rounded-lg bg-emerald-600 px-4 py-2 text-[11px] font-bold text-white hover:bg-emerald-700 shadow-sm transition flex items-center gap-1.5"
-                        >
-                          ✓ Verify Document
-                        </button>
-                        <button
-                          onClick={() => {
-                            void updateDocStatus(previewDocument.id, 'REJECTED')
-                            setPreviewDocument(null)
-                          }}
-                          className="rounded-lg border border-red-200 px-4 py-2 text-[11px] font-bold text-red-600 hover:bg-red-50 transition flex items-center gap-1.5"
-                        >
-                          ✕ Reject
-                        </button>
-                        <button
-                          onClick={() => {
-                            setFraudSourceDocument(previewDocument)
-                            setPreviewDocument(null)
-                          }}
-                          className="rounded-lg bg-red-600 px-4 py-2 text-[11px] font-bold text-white hover:bg-red-700 shadow-sm transition flex items-center gap-1.5"
-                        >
-                          ⚑ Flag Fraud
-                        </button>
-                      </>
-                    )}
-                  </div>
+                          <button
+                            onClick={() => {
+                              void updateDocStatus(previewDocument.id, 'APPROVED')
+                              setPreviewDocument(null)
+                            }}
+                            className="rounded-lg bg-emerald-600 px-4 py-2 text-[11px] font-bold text-white hover:bg-emerald-700 shadow-sm transition flex items-center gap-1.5"
+                          >
+                            ✓ Verify Document
+                          </button>
+                          <button
+                            onClick={() => {
+                              void updateDocStatus(previewDocument.id, 'REJECTED')
+                              setPreviewDocument(null)
+                            }}
+                            className="rounded-lg border border-red-200 px-4 py-2 text-[11px] font-bold text-red-600 hover:bg-red-50 transition flex items-center gap-1.5"
+                          >
+                            ✕ Reject
+                          </button>
+                          <button
+                            onClick={() => {
+                              setFraudSourceDocument(previewDocument)
+                              setPreviewDocument(null)
+                            }}
+                            className="rounded-lg bg-red-600 px-4 py-2 text-[11px] font-bold text-white hover:bg-red-700 shadow-sm transition flex items-center gap-1.5"
+                          >
+                            ⚑ Flag Fraud
+                          </button>
+                        </>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2">
                       {assetUrl && <a href={assetUrl} target="_blank" rel="noreferrer" className="rounded-lg bg-slate-900 px-4 py-2 text-[11px] font-semibold text-white">Open original ↗</a>}
                       <button onClick={() => setPreviewDocument(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-[11px] font-semibold text-slate-600 hover:bg-slate-100">Close</button>
@@ -3128,14 +3331,13 @@ function CaseDetailDrawer({
             <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/50 p-4 sm:p-6">
               <button aria-label="Close confirmation" className="absolute inset-0 h-full w-full cursor-default" onClick={() => { setConfirmAction(null); setFraudSourceDocument(null); setDocumentRejectTarget(null); setActionReason('') }} />
               <div role="dialog" aria-modal="true" className="relative z-10 w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl sm:p-6">
-                <div className={`text-sm font-bold mb-2 ${
-                  (confirmAction.includes('Reject') || confirmAction.includes('Fraud')) ? 'text-red-700' :
+                <div className={`text-sm font-bold mb-2 ${(confirmAction.includes('Reject') || confirmAction.includes('Fraud')) ? 'text-red-700' :
                   confirmAction === 'Approve Case' ? 'text-emerald-700' :
-                  confirmAction === 'Send to Credit Team' ? 'text-purple-700' :
-                  confirmAction === 'Waive Field Verification' ? 'text-violet-700' :
-                  confirmAction === 'Hold Case' ? 'text-slate-700' :
-                  confirmAction === 'Send to Field Verification' ? 'text-cyan-700' : 'text-orange-700'
-                }`}>
+                    confirmAction === 'Send to Credit Team' ? 'text-purple-700' :
+                      confirmAction === 'Waive Field Verification' ? 'text-violet-700' :
+                        confirmAction === 'Hold Case' ? 'text-slate-700' :
+                          confirmAction === 'Send to Field Verification' ? 'text-cyan-700' : 'text-orange-700'
+                  }`}>
                   Confirm: {confirmAction}
                 </div>
                 <div className="text-[11px] text-gray-600 mb-4">
@@ -3147,7 +3349,7 @@ function CaseDetailDrawer({
                       ? ' The rejection will be stored and the applicant can reapply after the configured waiting period.'
                       : confirmAction === 'Reject Document'
                         ? ` This will reject ${documentRejectTarget?.name || 'the selected document'}.`
-                      : ' This action will update the case status and log a system entry.'}
+                        : ' This action will update the case status and log a system entry.'}
                 </div>
                 {['Reject Case', 'Reject Document', 'Flag as Fraud'].includes(confirmAction) && (
                   <div className="mb-4">
@@ -3170,15 +3372,14 @@ function CaseDetailDrawer({
                   <button
                     onClick={() => confirmAction === 'Reject Document' ? void confirmDocumentRejection() : void handleCaseAction(confirmAction)}
                     disabled={actionSaving || (['Reject Case', 'Reject Document', 'Flag as Fraud'].includes(confirmAction) && !actionReason.trim())}
-                    className={`w-full rounded-xl px-4 py-2.5 text-[11px] font-semibold text-white disabled:cursor-wait disabled:opacity-60 sm:w-auto sm:py-1.5 ${
-                      (confirmAction.includes('Reject') || confirmAction.includes('Fraud')) ? 'bg-red-600 hover:bg-red-700' :
+                    className={`w-full rounded-xl px-4 py-2.5 text-[11px] font-semibold text-white disabled:cursor-wait disabled:opacity-60 sm:w-auto sm:py-1.5 ${(confirmAction.includes('Reject') || confirmAction.includes('Fraud')) ? 'bg-red-600 hover:bg-red-700' :
                       confirmAction === 'Approve Case' ? 'bg-emerald-600 hover:bg-emerald-700' :
-                      confirmAction === 'Send to Credit Team' ? 'bg-purple-600 hover:bg-purple-700' :
-                      confirmAction === 'Waive Field Verification' ? 'bg-violet-600 hover:bg-violet-700' :
-                      confirmAction === 'Hold Case' ? 'bg-slate-600 hover:bg-slate-700' :
-                      confirmAction === 'Send to Field Verification' ? 'bg-cyan-600 hover:bg-cyan-700' :
-                      'bg-orange-500 hover:bg-orange-600'
-                    }`}
+                        confirmAction === 'Send to Credit Team' ? 'bg-purple-600 hover:bg-purple-700' :
+                          confirmAction === 'Waive Field Verification' ? 'bg-violet-600 hover:bg-violet-700' :
+                            confirmAction === 'Hold Case' ? 'bg-slate-600 hover:bg-slate-700' :
+                              confirmAction === 'Send to Field Verification' ? 'bg-cyan-600 hover:bg-cyan-700' :
+                                'bg-orange-500 hover:bg-orange-600'
+                      }`}
                   >
                     {actionSaving ? 'Saving…' : `Yes, ${confirmAction}`}
                   </button>
@@ -3188,10 +3389,9 @@ function CaseDetailDrawer({
           )}
 
           {toast && (
-            <div className={`fixed bottom-6 right-6 z-70 px-4 py-2 rounded shadow-lg text-white text-[11px] font-semibold flex items-center gap-2 ${
-              toast.type === 'success' ? 'bg-emerald-600' :
+            <div className={`fixed bottom-6 right-6 z-70 px-4 py-2 rounded shadow-lg text-white text-[11px] font-semibold flex items-center gap-2 ${toast.type === 'success' ? 'bg-emerald-600' :
               toast.type === 'error' ? 'bg-red-600' : 'bg-blue-600'
-            }`}>
+              }`}>
               {toast.type === 'success' ? '✓' : toast.type === 'error' ? '✗' : 'ℹ'} {toast.msg}
             </div>
           )}
@@ -3239,10 +3439,10 @@ function CreditBureauPanel({ credit }: { credit?: CaseRecord['creditBureau'] }) 
   const Metric = ({ label, value, hint, color }: { label: string; value: string | number; hint: string; color: string }) => <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</div><div className="mt-2 text-2xl font-black" style={{ color }}>{value}</div><div className="mt-1 text-[11px] text-slate-500">{hint}</div></div>
   const LoanList = ({ title, records, accent, empty }: { title: string; records: Record<string, any>[]; accent: string; empty: string }) => <section className="h-fit rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between border-b border-slate-100 pb-4"><h3 className="text-base font-bold text-slate-900">{title}</h3><span className="rounded-full px-3 py-1 text-[10px] font-bold" style={{ color: accent, backgroundColor: `${accent}12`, border: `1px solid ${accent}45` }}>{records.length} Accounts</span></div>{records.length ? <div className="mt-4 grid gap-3">{records.map((loan, index) => <div key={index} className="grid gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3 text-[11px] sm:grid-cols-4">{[['Type', loan.type || loan.loan_type], ['Bank', loan.bank], ['Amount', loan.amount ? `₹${Number(loan.amount).toLocaleString('en-IN')}` : null], ['Status', loan.status]].map(([label, value]) => <div key={label as string}><div className="text-[9px] font-bold uppercase text-slate-400">{label}</div><div className="mt-1 font-semibold text-slate-800">{useful(value)}</div></div>)}</div>)}</div> : <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-xs text-slate-400">{empty}</div>}</section>
   return <div className="credit-bureau-panel space-y-5 bg-slate-50/60 p-1 sm:p-3">
-    <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4"><div className="flex items-center gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-xl text-blue-600">▤</span><div><h2 className="text-lg font-black text-slate-900">CIBIL Credit Score</h2><p className="text-xs text-slate-400">Bureau credit report powered by Bifrost API</p></div></div><div className="flex items-center gap-2"><button type="button" onClick={() => window.location.reload()} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600">↻ Silent Reload</button><span className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-700">✓ {validScore ? 'Checked' : 'No score'}</span></div></div><div className="flex flex-col items-center px-5 py-8"><div className="text-sm font-black uppercase tracking-wider text-slate-800">Credit Score</div><div className="relative mt-5 h-40 w-72"><svg viewBox="0 0 240 135" className="h-full w-full"><path d="M25 115 A95 95 0 0 1 215 115" fill="none" stroke="#ef4444" strokeWidth="25" strokeLinecap="round"/><path d="M57 48 A95 95 0 0 1 101 23" fill="none" stroke="#f97316" strokeWidth="25"/><path d="M101 23 A95 95 0 0 1 151 29" fill="none" stroke="#eab308" strokeWidth="25"/><path d="M151 29 A95 95 0 0 1 195 70" fill="none" stroke="#84cc16" strokeWidth="25"/><path d="M195 70 A95 95 0 0 1 215 115" fill="none" stroke="#16a34a" strokeWidth="25" strokeLinecap="round"/>{validScore && <g transform={`rotate(${needleAngle} 120 115)`}><line x1="120" y1="115" x2="198" y2="115" stroke="#0f172a" strokeWidth="5"/><circle cx="120" cy="115" r="7" fill="#0f172a"/></g>}</svg><div className="absolute inset-x-0 bottom-1 text-center"><div className="text-5xl font-black" style={{ color: scoreColor }}>{validScore ? score : 'N/A'}</div><div className="text-[11px] font-black uppercase tracking-[.25em] text-slate-500">{validScore ? scoreCategory : 'No score'}</div></div></div><div className="mt-5 flex flex-wrap justify-center gap-3">{reportLink && <a href={reportLink} target="_blank" rel="noreferrer" className="rounded-full border border-slate-200 px-5 py-2.5 text-xs font-bold text-slate-700">◉ View PDF</a>}{reportUrl && <a href={reportUrl} download target="_blank" rel="noreferrer" className="rounded-full bg-slate-900 px-5 py-2.5 text-xs font-bold text-white">⇩ Download Report</a>}</div></div></section>
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6"><Metric label="CIBIL Score" value={validScore ? score : 'N/A'} hint="TransUnion V3" color="#059669"/><Metric label="Total Accounts" value={totalAccounts} hint="Tradelines" color="#2563eb"/><Metric label="Active Accounts" value={activeAccounts} hint="Running Loans" color="#0d9488"/><Metric label="Closed Accounts" value={closedAccounts} hint="Settled / Closed" color="#9333ea"/><Metric label="On-time Payment" value={useful(field('on_time_payment'))} hint="Track Record" color="#047857"/><Metric label="Inquiries (Total)" value={inquiryTotal || 'N/A'} hint="Bureau Enquiries" color="#334155"/></div>
+    <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4"><div className="flex items-center gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-xl text-blue-600">▤</span><div><h2 className="text-lg font-black text-slate-900">CIBIL Credit Score</h2><p className="text-xs text-slate-400">Bureau credit report powered by Bifrost API</p></div></div><div className="flex items-center gap-2"><button type="button" onClick={() => window.location.reload()} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600">↻ Silent Reload</button><span className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-700">✓ {validScore ? 'Checked' : 'No score'}</span></div></div><div className="flex flex-col items-center px-5 py-8"><div className="text-sm font-black uppercase tracking-wider text-slate-800">Credit Score</div><div className="relative mt-5 h-40 w-72"><svg viewBox="0 0 240 135" className="h-full w-full"><path d="M25 115 A95 95 0 0 1 215 115" fill="none" stroke="#ef4444" strokeWidth="25" strokeLinecap="round" /><path d="M57 48 A95 95 0 0 1 101 23" fill="none" stroke="#f97316" strokeWidth="25" /><path d="M101 23 A95 95 0 0 1 151 29" fill="none" stroke="#eab308" strokeWidth="25" /><path d="M151 29 A95 95 0 0 1 195 70" fill="none" stroke="#84cc16" strokeWidth="25" /><path d="M195 70 A95 95 0 0 1 215 115" fill="none" stroke="#16a34a" strokeWidth="25" strokeLinecap="round" />{validScore && <g transform={`rotate(${needleAngle} 120 115)`}><line x1="120" y1="115" x2="198" y2="115" stroke="#0f172a" strokeWidth="5" /><circle cx="120" cy="115" r="7" fill="#0f172a" /></g>}</svg><div className="absolute inset-x-0 bottom-1 text-center"><div className="text-5xl font-black" style={{ color: scoreColor }}>{validScore ? score : 'N/A'}</div><div className="text-[11px] font-black uppercase tracking-[.25em] text-slate-500">{validScore ? scoreCategory : 'No score'}</div></div></div><div className="mt-5 flex flex-wrap justify-center gap-3">{reportLink && <a href={reportLink} target="_blank" rel="noreferrer" className="rounded-full border border-slate-200 px-5 py-2.5 text-xs font-bold text-slate-700">◉ View PDF</a>}{reportUrl && <a href={reportUrl} download target="_blank" rel="noreferrer" className="rounded-full bg-slate-900 px-5 py-2.5 text-xs font-bold text-white">⇩ Download Report</a>}</div></div></section>
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6"><Metric label="CIBIL Score" value={validScore ? score : 'N/A'} hint="TransUnion V3" color="#059669" /><Metric label="Total Accounts" value={totalAccounts} hint="Tradelines" color="#2563eb" /><Metric label="Active Accounts" value={activeAccounts} hint="Running Loans" color="#0d9488" /><Metric label="Closed Accounts" value={closedAccounts} hint="Settled / Closed" color="#9333ea" /><Metric label="On-time Payment" value={useful(field('on_time_payment'))} hint="Track Record" color="#047857" /><Metric label="Inquiries (Total)" value={inquiryTotal || 'N/A'} hint="Bureau Enquiries" color="#334155" /></div>
     <div className="grid items-start gap-4 lg:grid-cols-2"><section className="h-fit rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><h3 className="border-b border-slate-100 pb-4 text-base font-bold text-slate-900">✨ Score Factors & Interpretation</h3><div className="mt-4 rounded-2xl bg-slate-50 p-4"><div className="text-xs font-bold text-slate-500">Key Factors Affecting Score</div><p className="mt-2 text-sm leading-6 text-slate-700">{keyFactors}</p></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3"><div className="text-[10px] font-bold text-emerald-700">SCORE CATEGORY</div><div className="mt-1 text-base font-black text-emerald-700">{scoreCategory}</div></div><div className="rounded-xl border border-blue-100 bg-blue-50 p-3"><div className="text-[10px] font-bold text-blue-700">RISK ASSESSMENT</div><div className="mt-1 text-base font-black text-blue-700">{scoreInterpretation}</div></div></div></section><section className="h-fit rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between border-b border-slate-100 pb-4"><h3 className="text-base font-bold text-slate-900">♢ DPD & Delinquency Analysis</h3><span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold text-emerald-700">{riskFlag}</span></div><div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4"><div className="text-sm font-bold text-emerald-800">Delinquency Summary</div><p className="mt-2 text-sm leading-6 text-slate-700">{dpdAnalysis}</p></div></section></div>
-    <div className="grid items-start gap-4 lg:grid-cols-2"><LoanList title="▭ Active Loans & Exposure" records={activeLoans} accent="#0d9488" empty="No active loans reported in bureau"/><LoanList title="✓ Closed & Settled Loans" records={closedLoans} accent="#9333ea" empty="No closed loan records found"/></div>
+    <div className="grid items-start gap-4 lg:grid-cols-2"><LoanList title="▭ Active Loans & Exposure" records={activeLoans} accent="#0d9488" empty="No active loans reported in bureau" /><LoanList title="✓ Closed & Settled Loans" records={closedLoans} accent="#9333ea" empty="No closed loan records found" /></div>
   </div>
 }
 
@@ -3298,12 +3498,12 @@ function EkycCard({ title, subtitle, badge, tone, fields }: { title: string; sub
               <div key={recordIndex} className="overflow-hidden rounded-lg border border-blue-100 bg-white shadow-sm">
                 <div className="border-b border-blue-100 bg-blue-50 px-3 py-1.5 text-[10px] font-bold text-blue-700">{String(record.type || record.loan_type || `Record ${recordIndex + 1}`)}</div>
                 <div className="p-2">
-                {Object.entries(record).map(([key, fieldValue]) => (
-                  <div key={key} className="flex min-w-0 items-start justify-between gap-3 border-b border-slate-100 py-1 last:border-0">
-                    <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-400">{formatProviderLabel(key)}</span>
-                    <span className="min-w-0 break-words text-right text-[10px] font-semibold text-slate-700">{fieldValue === null || fieldValue === undefined || fieldValue === '' ? 'N/A' : String(fieldValue)}</span>
-                  </div>
-                ))}
+                  {Object.entries(record).map(([key, fieldValue]) => (
+                    <div key={key} className="flex min-w-0 items-start justify-between gap-3 border-b border-slate-100 py-1 last:border-0">
+                      <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-400">{formatProviderLabel(key)}</span>
+                      <span className="min-w-0 break-words text-right text-[10px] font-semibold text-slate-700">{fieldValue === null || fieldValue === undefined || fieldValue === '' ? 'N/A' : String(fieldValue)}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
@@ -3520,25 +3720,22 @@ function LegacyCustomerUploadPage({ token }: { token: string }) {
                 return (
                   <div
                     key={doc.id}
-                    className={`rounded-2xl border transition-all duration-300 p-4 ${
-                      isUploaded
-                        ? 'border-emerald-200 bg-white shadow-sm hover:border-emerald-300'
-                        : 'border-slate-200 bg-white hover:border-blue-300 hover:shadow-md'
-                    }`}
+                    className={`rounded-2xl border transition-all duration-300 p-4 ${isUploaded
+                      ? 'border-emerald-200 bg-white shadow-sm hover:border-emerald-300'
+                      : 'border-slate-200 bg-white hover:border-blue-300 hover:shadow-md'
+                      }`}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="flex items-start sm:items-center gap-3 min-w-0">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 ${
-                          isUploaded ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-50 text-blue-700'
-                        }`}>
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 ${isUploaded ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-50 text-blue-700'
+                          }`}>
                           {getDocIcon(doc.documentName)}
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-sm text-slate-800">{doc.documentName}</span>
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              isUploaded ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                            }`}>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isUploaded ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                              }`}>
                               {isUploaded ? '✓ Uploaded' : '⏳ Pending'}
                             </span>
                             {isRecent && <span className="text-[10px] font-bold text-emerald-600 animate-bounce">Saved!</span>}
@@ -3607,13 +3804,12 @@ function LegacyCustomerUploadPage({ token }: { token: string }) {
                           </a>
                         )}
 
-                        <label className={`cursor-pointer px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 flex items-center gap-1.5 shadow-sm ${
-                          isSaving
-                            ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
-                            : isUploaded
+                        <label className={`cursor-pointer px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 flex items-center gap-1.5 shadow-sm ${isSaving
+                          ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                          : isUploaded
                             ? 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                             : 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-blue-500/20'
-                        }`}>
+                          }`}>
                           <input
                             type="file"
                             accept=".pdf,image/jpeg,image/png,image/webp"
@@ -3673,10 +3869,35 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState(1)
   const [notifications, setNotifications] = useState<FcuNotification[]>([])
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [installPrompt, setInstallPrompt] = useState<any>(null)
   const latestNotificationId = useRef<string | null>(null)
 
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault()
+      setInstallPrompt(e)
+    }
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  const handleInstallPwa = async () => {
+    if (!installPrompt) return
+    installPrompt.prompt()
+    const choice = await installPrompt.userChoice
+    if (choice?.outcome === 'accepted') {
+      setInstallPrompt(null)
+    }
+  }
+
   const loadCases = async () => {
-    const response = await fetch(`${API_BASE_URL}/api/fcu/auth/cases`, { credentials: 'include', cache: 'no-store' })
+    const response = await fcuFetch('/api/fcu/auth/cases', { cache: 'no-store' })
+    if (response.status === 401) {
+      localStorage.removeItem('fcu_token')
+      localStorage.removeItem('fcu_user')
+      setAuthUser(null)
+      return []
+    }
     const result = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(result.message || 'Unable to load applications')
     const loadedCases = Array.isArray(result.data) ? result.data as CaseRecord[] : []
@@ -3685,10 +3906,27 @@ export default function App() {
   }
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/fcu/auth/me`, { credentials: 'include' })
-      .then(async response => response.ok ? (await response.json()).data as FcuUser : null)
+    const token = localStorage.getItem('fcu_token')
+    if (!token) {
+      setAuthUser(null)
+      setCheckingSession(false)
+      return
+    }
+    fcuFetch('/api/fcu/auth/me')
+      .then(async response => {
+        if (response.ok) {
+          const json = await response.json().catch(() => ({}))
+          return json.data as FcuUser
+        }
+        localStorage.removeItem('fcu_token')
+        localStorage.removeItem('fcu_user')
+        return null
+      })
       .then(setAuthUser)
-      .catch(() => setAuthUser(null))
+      .catch(() => {
+        localStorage.removeItem('fcu_token')
+        setAuthUser(null)
+      })
       .finally(() => setCheckingSession(false))
   }, [])
 
@@ -3707,8 +3945,13 @@ export default function App() {
   useEffect(() => {
     if (!authUser) return
     const loadSidebar = () => {
-      fetch(`${API_BASE_URL}/api/fcu/auth/sidebar`, { credentials: 'include' })
+      fcuFetch('/api/fcu/auth/sidebar')
         .then(async response => {
+          if (response.status === 401) {
+            localStorage.removeItem('fcu_token')
+            setAuthUser(null)
+            return
+          }
           const result = await response.json().catch(() => ({}))
           if (!response.ok) throw new Error(result.message || 'Unable to load sidebar')
           return result.data
@@ -3725,7 +3968,12 @@ export default function App() {
     if (!authUser) return
     const loadNotifications = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/fcu/auth/notifications`, { credentials: 'include', cache: 'no-store' })
+        const response = await fcuFetch('/api/fcu/auth/notifications', { cache: 'no-store' })
+        if (response.status === 401) {
+          localStorage.removeItem('fcu_token')
+          setAuthUser(null)
+          return
+        }
         const result = await response.json().catch(() => ({}))
         if (!response.ok) throw new Error(result.message || 'Unable to load notifications')
         const incoming = Array.isArray(result.data) ? result.data as FcuNotification[] : []
@@ -3747,9 +3995,12 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      if (viewCase) await releaseCaseClaim(viewCase)
-      await fetch(`${API_BASE_URL}/api/fcu/auth/logout`, { method: 'POST', credentials: 'include' })
+      if (viewCase) await releaseCaseClaim(viewCase).catch(() => {})
+      await fcuFetch('/api/fcu/auth/logout', { method: 'POST' }).catch(() => {})
     } finally {
+      localStorage.removeItem('fcu_token')
+      localStorage.removeItem('fcu_user')
+      sessionStorage.clear()
       setViewCase(null)
       setActiveNav('Dashboard')
       setAuthUser(null)
@@ -3759,7 +4010,7 @@ export default function App() {
   const openNotification = async (notification: FcuNotification) => {
     setNotifications(current => current.map(item => item.id === notification.id ? { ...item, isRead: true } : item))
     setNotificationsOpen(false)
-    void fetch(`${API_BASE_URL}/api/fcu/auth/notifications/${notification.applicationId}/read`, { method: 'PATCH', credentials: 'include' })
+    void fcuFetch(`/api/fcu/auth/notifications/${notification.applicationId}/read`, { method: 'PATCH' })
     let application = cases.find(item => Number(item.databaseId || item.id) === notification.applicationId)
     if (!application) {
       try { application = (await loadCases()).find(item => Number(item.databaseId || item.id) === notification.applicationId) } catch { /* handled by applications screen */ }
@@ -3770,7 +4021,7 @@ export default function App() {
 
   const markAllNotificationsAsRead = async () => {
     setNotifications(current => current.map(item => ({ ...item, isRead: true })))
-    await fetch(`${API_BASE_URL}/api/fcu/auth/notifications/read-all`, { method: 'PATCH', credentials: 'include' })
+    await fcuFetch('/api/fcu/auth/notifications/read-all', { method: 'PATCH' })
   }
 
   const toggleNotifications = async () => {
@@ -3780,7 +4031,7 @@ export default function App() {
 
   const claimAndOpenCase = async (caseItem: CaseRecord) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/fcu/auth/cases/${caseItem.databaseId || caseItem.id}/claim`, { method: 'POST', credentials: 'include' })
+      const response = await fcuFetch(`/api/fcu/auth/cases/${caseItem.databaseId || caseItem.id}/claim`, { method: 'POST' })
       const result = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(result.message || 'Unable to claim application')
       const claimedCase = { ...caseItem, lock: { userId: authUser!.id, userName: authUser!.name || authUser!.email, expiresAt: '', isMine: true } }
@@ -3803,7 +4054,7 @@ export default function App() {
 
   const releaseCaseClaim = async (caseItem: CaseRecord) => {
     if (caseItem.lock?.isMine) {
-      try { await fetch(`${API_BASE_URL}/api/fcu/auth/cases/${caseItem.databaseId || caseItem.id}/claim`, { method: 'DELETE', credentials: 'include' }) } catch { /* Lock expires automatically. */ }
+      try { await fcuFetch(`/api/fcu/auth/cases/${caseItem.databaseId || caseItem.id}/claim`, { method: 'DELETE' }) } catch { /* Lock expires automatically. */ }
       setCases(current => current.map(item => item.id === caseItem.id ? { ...item, lock: null } : item))
     }
   }
@@ -3817,9 +4068,9 @@ export default function App() {
     if (!viewCase) return
     const heartbeat = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/fcu/auth/cases/${viewCase.databaseId || viewCase.id}/heartbeat`, { method: 'POST', credentials: 'include' })
+        const response = await fcuFetch(`/api/fcu/auth/cases/${viewCase.databaseId || viewCase.id}/heartbeat`, { method: 'POST' })
         if (response.status === 409) {
-          await fetch(`${API_BASE_URL}/api/fcu/auth/cases/${viewCase.databaseId || viewCase.id}/claim`, { method: 'POST', credentials: 'include' })
+          await fcuFetch(`/api/fcu/auth/cases/${viewCase.databaseId || viewCase.id}/claim`, { method: 'POST' })
         }
       } catch { /* A temporary server/network interruption is retried on the next heartbeat. */ }
     }
@@ -3835,22 +4086,63 @@ export default function App() {
 
   const isSentToFcu = (caseItem: CaseRecord) => {
     const raw = String(caseItem.sourceStatus || '').toUpperCase().replace(/[\s_-]+/g, '_')
-    return raw === 'SENT_TO_FCU' || raw === 'SENT_FCU' || raw.includes('FCU')
+    const caseStat = String(caseItem.status || '').toUpperCase().replace(/[\s_-]+/g, '_')
+    const stage = String(caseItem.workflowStage || '').toUpperCase().replace(/[\s_-]+/g, '_')
+    
+    // Explicitly reject New Lead or un-routed leads
+    if (raw === 'NEW_LEAD' || raw === 'NEW' || caseStat === 'NEW_LEAD' || caseStat === 'NEW' || raw === 'FOLLOW_UP' || caseStat === 'FOLLOW_UP') {
+      return false
+    }
+
+    if (
+      raw.includes('FIELD') ||
+      caseStat.includes('FIELD') ||
+      stage.includes('FIELD') ||
+      raw.includes('FCU') ||
+      caseStat.includes('FCU') ||
+      raw === 'SENT_TO_FCU' ||
+      raw === 'SENT_FCU' ||
+      caseStat === 'SENT_TO_FCU' ||
+      caseStat === 'SENT_FCU' ||
+      caseStat === 'FIELD_VERIFICATION' ||
+      caseStat === 'SEND_TO_FIELD_VERIFICATION' ||
+      caseStat === 'SENT_TO_FIELD_VERIFICATION' ||
+      stage === 'FIELD_ASSIGNED' ||
+      stage === 'FIELD_WAIVED' ||
+      stage === 'DOCUMENT_REVIEW' ||
+      stage === 'FCU_APPROVED'
+    ) {
+      return true
+    }
+
+    const validSentFcu = [
+      'SENT_TO_FCU',
+      'SENT_FCU',
+      'SEND_TO_FCU',
+      'SEND_FCU',
+      'SEND_TO_FIELD_VERIFICATION',
+      'SENT_TO_FIELD_VERIFICATION',
+      'FIELD_VERIFICATION',
+      'FCU_APPROVED',
+      'UNDER_FCU_REVIEW',
+    ]
+    return validSentFcu.includes(raw) || validSentFcu.includes(caseStat)
   }
 
   const activeCases = cases.filter(caseItem => {
-    const terminalStatuses = ['SENT_TO_CREDIT', 'DISBURSED', 'REJECTED', 'FORWARDED_REJECT']
-    return !terminalStatuses.includes(caseItem.status) && caseItem.workflowStage !== 'FINALIZED' && isSentToFcu(caseItem)
+    const isRejectedStatus = caseItem.status.includes('REJECT')
+    const terminalStatuses = ['SENT_TO_CREDIT', 'DISBURSED', 'REJECTED', 'FORWARDED_REJECT', 'FCU_REJECTED', 'REJECTED_BY_FCU', 'REJECTED_BY_CREDIT', 'CREDIT_REJECTED', 'LOAN_REJECT']
+    return !terminalStatuses.includes(caseItem.status) && !isRejectedStatus && caseItem.workflowStage !== 'FINALIZED' && isSentToFcu(caseItem)
   })
 
   const pageConfig: Record<string, { title: string; statusMatch: (status: string) => boolean }> = {
     Applications: {
       title: 'Applications',
-      statusMatch: status => !['SENT_TO_CREDIT', 'DISBURSED', 'REJECTED', 'FORWARDED_REJECT'].includes(status),
+      statusMatch: status => !['SENT_TO_CREDIT', 'DISBURSED', 'REJECTED', 'FORWARDED_REJECT', 'FCU_REJECTED', 'REJECTED_BY_FCU', 'REJECTED_BY_CREDIT', 'CREDIT_REJECTED', 'LOAN_REJECT'].includes(status) && !status.includes('REJECT'),
     },
     Approved: {
       title: 'Approved Cases',
-      statusMatch: status => status === 'APPROVED',
+      statusMatch: status => status === 'APPROVED' || status === 'FCU_APPROVED',
     },
     Disbursed: {
       title: 'Disbursed Cases',
@@ -3862,7 +4154,7 @@ export default function App() {
     },
     'Rejected/Closed': {
       title: 'Rejected / Closed Cases',
-      statusMatch: status => status === 'REJECTED' || status === 'FORWARDED_REJECT',
+      statusMatch: status => ['REJECTED', 'FORWARDED_REJECT', 'FCU_REJECTED', 'REJECTED_BY_FCU', 'REJECTED_BY_CREDIT', 'CREDIT_REJECTED', 'LOAN_REJECT'].includes(status) || status.includes('REJECT'),
     },
     'Credit Team': {
       title: 'Credit Team Queue',
@@ -3891,10 +4183,10 @@ export default function App() {
   })
 
   const stats = [
-    { label: 'ACTIVE CASES',        value: String(cases.length),      color: 'border-blue-500' },
-    { label: 'FUNDED TOTAL AMOUNT', value: '₹8.5L',                   color: 'border-emerald-500' },
-    { label: 'RECOVERED AMOUNT',    value: '₹1.9L',                   color: 'border-purple-500' },
-    { label: 'CASE RECOVERY RATIO', value: '₹34,000',                 color: 'border-orange-500' },
+    { label: 'ACTIVE CASES', value: String(cases.length), color: 'border-blue-500' },
+    { label: 'FUNDED TOTAL AMOUNT', value: '₹8.5L', color: 'border-emerald-500' },
+    { label: 'RECOVERED AMOUNT', value: '₹1.9L', color: 'border-purple-500' },
+    { label: 'CASE RECOVERY RATIO', value: '₹34,000', color: 'border-orange-500' },
   ]
 
   const statsCases = activeNav === 'Applications' ? activeCases : filtered
@@ -3907,13 +4199,31 @@ export default function App() {
     { label: 'AVERAGE CASE VALUE', value: `₹${Math.round(totalAmount / Math.max(statsCases.length, 1)).toLocaleString('en-IN')}`, color: 'border-orange-500' },
   ]
 
-  const customerUploadToken = window.location.pathname.match(/^\/customer-upload\/([a-f0-9]+)$/i)?.[1]
+  const getCustomerUploadToken = () => {
+    const pathname = window.location.pathname || ''
+    const hash = window.location.hash || ''
+    const search = window.location.search || ''
+
+    const params = new URLSearchParams(search)
+    const queryToken = params.get('token') || params.get('customer-upload') || params.get('upload')
+    if (queryToken && /^[a-f0-9]+$/i.test(queryToken)) return queryToken
+
+    const hashMatch = hash.match(/customer-upload[\/=]([a-f0-9]+)/i)
+    if (hashMatch) return hashMatch[1]
+
+    const pathMatch = pathname.match(/customer-upload\/([a-f0-9]+)/i)
+    if (pathMatch) return pathMatch[1]
+
+    return null
+  }
+
+  const customerUploadToken = getCustomerUploadToken()
   if (customerUploadToken) return <LegacyCustomerUploadPage token={customerUploadToken} />
 
   if (checkingSession) {
     return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-xs font-semibold tracking-wide text-slate-300">Checking secure session…</div>
   }
-  if (!authUser) return <LoginPage onLogin={setAuthUser} />
+  if (!authUser) return <LoginPage onLogin={setAuthUser} installPrompt={installPrompt} onInstallPwa={handleInstallPwa} />
 
   return (
     <div className="min-h-screen bg-[#f6f8fc] flex flex-col text-xs">
@@ -3921,7 +4231,7 @@ export default function App() {
       <header className="border-b border-slate-200/80 bg-white/90 backdrop-blur-xl shadow-[0_10px_35px_rgba(15,23,42,0.06)] z-40 shrink-0">
         <div className="flex min-h-16 w-full flex-wrap items-center justify-between gap-2 px-3 py-2 lg:h-16 lg:flex-nowrap lg:gap-3 lg:px-4 lg:py-0">
           <div className="shrink-0">
-            <img src="/assets/geetpay-logo.png" alt="GeetPay - Product of Waqt Finance" className="h-10 w-auto max-w-[150px] object-contain object-left sm:max-w-[180px]" />
+            <img src={geetpayLogo} alt="GeetPay - Product of Waqt Finance" className="h-10 w-auto max-w-[150px] object-contain object-left sm:max-w-[180px]" />
           </div>
 
           <nav className="order-3 flex w-full items-center overflow-x-auto px-0 lg:order-none lg:w-auto lg:flex-1 lg:justify-center lg:px-2">
@@ -3930,11 +4240,10 @@ export default function App() {
                 <button
                   key={item}
                   onClick={() => setActiveNav(item)}
-                  className={`rounded-full px-3 py-1.5 text-[10px] font-semibold whitespace-nowrap transition-all ${
-                    activeNav === item
-                      ? 'bg-slate-900 text-white shadow-sm'
-                      : 'text-slate-600 hover:bg-white hover:text-slate-900'
-                  }`}
+                  className={`rounded-full px-3 py-1.5 text-[10px] font-semibold whitespace-nowrap transition-all ${activeNav === item
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-white hover:text-slate-900'
+                    }`}
                 >
                   {item}
                 </button>
@@ -3943,13 +4252,21 @@ export default function App() {
           </nav>
 
           <div className="flex items-center gap-1.5 shrink-0">
+            {installPrompt && (
+              <button
+                onClick={handleInstallPwa}
+                className="rounded-full bg-emerald-600 px-3 py-1.5 text-[10px] font-bold text-white shadow-sm transition-all hover:bg-emerald-700 animate-pulse flex items-center gap-1"
+                title="Install GeetPay FCU Dashboard as App"
+              >
+                <span>📲</span> Install App
+              </button>
+            )}
             <button
               onClick={() => setActiveNav('Lead Tracker')}
-              className={`rounded-full px-2.5 py-1.5 text-[10px] font-medium transition-all ${
-                activeNav === 'Lead Tracker'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-              }`}
+              className={`rounded-full px-2.5 py-1.5 text-[10px] font-medium transition-all ${activeNav === 'Lead Tracker'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
             >
               🔍 Search
             </button>
@@ -3957,6 +4274,11 @@ export default function App() {
               🔔 Notifications
               {notifications.some(item => !item.isRead) && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-600 px-1 text-[9px] font-bold text-white ring-2 ring-white">{Math.min(notifications.filter(item => !item.isRead).length, 99)}</span>}
             </button>
+            <div className="hidden sm:flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-medium text-slate-700">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              <span>{authUser.name || authUser.email}</span>
+              {authUser.role && <span className="text-slate-400 font-normal">({authUser.role})</span>}
+            </div>
             <button onClick={handleLogout} className="rounded-full px-2.5 py-1.5 text-[10px] font-medium text-slate-600 transition-all hover:bg-rose-50 hover:text-rose-700">
               Logout
             </button>
@@ -3986,7 +4308,7 @@ export default function App() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Dashboard MIS View */}
-        {activeNav === 'Dashboard' && <Dashboard />}
+        {activeNav === 'Dashboard' && <Dashboard cases={cases} />}
 
         {/* Reports MIS View */}
         {activeNav === 'Reports' && <Reports cases={cases} />}
@@ -4244,6 +4566,7 @@ export default function App() {
         <CaseDetailDrawer
           caseData={viewCase}
           reviewerName={authUser.name || authUser.email}
+          reviewerRole={authUser.role}
           readOnly={activeNav !== 'Applications'}
           onClose={closeCaseDrawer}
           onCaseUpdate={handleCaseUpdate}

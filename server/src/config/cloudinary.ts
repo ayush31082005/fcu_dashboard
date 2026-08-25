@@ -1,32 +1,35 @@
-import { v2 as cloudinary } from 'cloudinary';
-import dotenv from 'dotenv';
-
-dotenv.config();
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+import { saveDocumentFile } from './documentStorage';
 
 /**
- * Uploads a base64 encoded data URI to Cloudinary
- * @param dataUri The base64 data URI (e.g., 'data:image/jpeg;base64,...')
- * @param folder The folder in Cloudinary where the image should be saved
- * @param publicId Optional specific name for the file
+ * Fallback adapter for uploadToCloudinary:
+ * Transparently saves file locally into centralized customer_documents directory
  */
 export const uploadToCloudinary = async (dataUri: string, folder: string, publicId?: string): Promise<string> => {
   try {
-    const result = await cloudinary.uploader.upload(dataUri, {
-      folder: folder,
-      public_id: publicId,
-      resource_type: 'auto',
+    const docName = publicId || `doc_${Date.now()}`;
+    const parts = docName.split('_');
+    const userId = parts[1] || 'customer';
+    const docType = folder || parts[0] || 'document';
+
+    const saved = await saveDocumentFile({
+      userId,
+      documentType: docType,
+      originalName: docName,
+      base64Data: dataUri,
     });
-    return result.secure_url;
+
+    return saved.filePath;
   } catch (error) {
-    console.error('Cloudinary upload error:', error);
-    throw new Error('Failed to upload file to Cloudinary');
+    console.error('Document upload error:', error);
+    throw new Error('Failed to upload document to storage');
   }
 };
 
-export default cloudinary;
+export default {
+  uploader: {
+    upload: async (dataUri: string) => {
+      const url = await uploadToCloudinary(dataUri, 'docs');
+      return { secure_url: url, url };
+    },
+  },
+};

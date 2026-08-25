@@ -69,7 +69,7 @@ export const sendWhatsAppDocumentRequest = async (mobile: string, applicationId:
   if (!authKey || !templateId) throw new Error('Document request WhatsApp template is not configured');
   if (!/^\d{10}$/.test(recipient)) throw new Error('Applicant WhatsApp mobile number is invalid');
   const parsedLink = new URL(uploadLink);
-  if (!['http:', 'https:'].includes(parsedLink.protocol) || !parsedLink.pathname.startsWith('/customer-upload/')) throw new Error('Invalid customer upload link');
+  if (!['http:', 'https:'].includes(parsedLink.protocol) || !parsedLink.pathname.includes('customer-upload')) throw new Error('Invalid customer upload link');
 
   console.log('WhatsApp document request:', {
     mobile: `${countryCode}${recipient}`,

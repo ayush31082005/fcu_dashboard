@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react'
+import { useState, useEffect, type FormEvent } from 'react'
+import geetpayLogo from './assets/geetpay-logo.png'
 
 export interface FcuUser {
   id: number
@@ -7,43 +8,158 @@ export interface FcuUser {
   role: string
 }
 
-export const API_BASE_URL = (import.meta.env.VITE_API_URL !== undefined ? String(import.meta.env.VITE_API_URL) : 'https://geetpay.in/FCU').trim().replace(/\/+$/, '')
+export const getApiBaseUrl = () => {
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+    if (isLocal) {
+      return (import.meta.env.VITE_API_URL || 'http://localhost:5000').trim().replace(/\/+$/, '');
+    }
+    const saved = localStorage.getItem('fcu_api_url');
+    if (saved && !saved.includes('localhost')) return saved.trim().replace(/\/+$/, '');
+    return (import.meta.env.VITE_PROD_API_URL || import.meta.env.VITE_API_URL || 'https://api.geetpay.in/FCUTEAM').trim().replace(/\/+$/, '');
+  }
+  return (import.meta.env.VITE_API_URL || 'http://localhost:5000').trim().replace(/\/+$/, '');
+};
 
-export default function LoginPage({ onLogin }: { onLogin: (user: FcuUser) => void }) {
+export const API_BASE_URL = {
+  toString: () => getApiBaseUrl(),
+  valueOf: () => getApiBaseUrl(),
+  [Symbol.toPrimitive]: () => getApiBaseUrl(),
+} as unknown as string;
+
+export default function LoginPage({
+  onLogin,
+  installPrompt: externalPrompt,
+  onInstallPwa: externalInstall,
+}: {
+  onLogin: (user: FcuUser) => void
+  installPrompt?: any
+  onInstallPwa?: () => void
+}) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [internalPrompt, setInternalPrompt] = useState<any>(null)
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault()
+      setInternalPrompt(e)
+    }
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  const effectivePrompt = externalPrompt || internalPrompt
+
+  const handleInstallClick = async () => {
+    if (externalInstall) {
+      externalInstall()
+      return
+    }
+    if (effectivePrompt) {
+      effectivePrompt.prompt()
+      const choice = await effectivePrompt.userChoice
+      if (choice?.outcome === 'accepted') {
+        setInternalPrompt(null)
+      }
+    } else {
+      alert('To install the app, click the install icon in your browser address bar (or browser Menu > Install app / Add to Home Screen).')
+    }
+  }
+
+  const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:'
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : ''
+
+  const candidateUrls = isLocal
+    ? ['http://localhost:5000', 'https://api.geetpay.in/FCUTEAM', 'https://geetpay.in/FCU']
+    : Array.from(new Set([
+        localStorage.getItem('fcu_api_url') || '',
+        import.meta.env.VITE_PROD_API_URL || '',
+        import.meta.env.VITE_API_URL || '',
+        'https://api.geetpay.in/FCUTEAM',
+        'https://geetpay.in/FCU',
+        'https://geetpay.in/FCUTEAM',
+        `${currentOrigin}/FCUTEAM`,
+        `${currentOrigin}/FCU`,
+      ]))
+      .map(u => String(u).trim().replace(/\/+$/, ''))
+      .filter(u => Boolean(u) && (!isHttps || !u.includes('localhost')))
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setError('')
     setLoading(true)
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/fcu/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ email: email.trim(), password }),
-      })
-      const result = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(result.message || 'Unable to sign in')
-      onLogin(result.data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to connect to the server')
-    } finally {
-      setLoading(false)
+
+    let lastErrorMessage = ''
+    let loggedIn = false
+
+    for (const endpoint of candidateUrls) {
+      try {
+        const response = await fetch(`${endpoint}/api/fcu/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ email: email.trim(), password }),
+        })
+
+        const contentType = response.headers.get('content-type') || ''
+        if (!contentType.includes('application/json')) {
+          continue
+        }
+
+        const result = await response.json().catch(() => null)
+        if (!result || typeof result !== 'object' || !result.status) {
+          continue
+        }
+
+        if (!response.ok || result.status !== 'success') {
+          lastErrorMessage = result.message || 'Unable to sign in. Please check your credentials.'
+          break
+        }
+
+        if (result.data) {
+          localStorage.setItem('fcu_api_url', endpoint)
+          if (result.data.token) {
+            localStorage.setItem('fcu_token', result.data.token)
+          }
+          onLogin(result.data)
+          loggedIn = true
+          break
+        }
+      } catch (err: any) {
+        lastErrorMessage = err?.message || 'Connection error'
+      }
     }
+
+    if (!loggedIn) {
+      setError(lastErrorMessage || 'Unable to connect to backend server. Please verify server status in cPanel.')
+    }
+    setLoading(false)
   }
 
   return (
     <main className="min-h-screen overflow-hidden bg-[#fbfcfe] text-[#061b49]">
       <header className="relative z-20 border-b border-slate-200 bg-white/95">
         <div className="mx-auto flex h-[76px] max-w-[1240px] items-center justify-between px-5 sm:px-8">
-          <img src="/assets/geetpay-logo.png" alt="GeetPay - Product of Waqt Finance" className="h-12 w-auto max-w-[190px] object-contain object-left sm:max-w-[230px]" />
-          <div className="hidden items-center gap-7 text-[12px] font-semibold text-slate-700 md:flex"><span>Secure Access</span><span>FCU Operations</span><span>Help</span></div>
-          <div className="rounded-full bg-[#eefaf5] px-4 py-2 text-[10px] font-bold text-[#008d61]"><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#00a76f]" />System online</div>
+          <img src={geetpayLogo} alt="GeetPay - Product of Waqt Finance" className="h-12 w-auto max-w-[190px] object-contain object-left sm:max-w-[230px]" />
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleInstallClick}
+              className="flex items-center gap-1.5 rounded-full bg-emerald-600 px-3.5 py-1.5 text-[11px] font-bold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow active:scale-95 cursor-pointer animate-pulse"
+              title="Install GeetPay FCU Dashboard as App"
+            >
+              <span>📲</span> Install App
+            </button>
+            <div className="rounded-full bg-[#eefaf5] px-4 py-2 text-[10px] font-bold text-[#008d61]">
+              <span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#00a76f]" />System online
+            </div>
+          </div>
         </div>
       </header>
 

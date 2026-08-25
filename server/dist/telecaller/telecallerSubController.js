@@ -4,7 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateTaskStatus = exports.addTask = exports.getTasks = exports.uploadDocument = exports.addSalaryCredit = exports.addNote = exports.updateShareLinkStatus = exports.addShareLink = exports.addFollowUp = exports.updateTelecallerDetails = exports.getTelecallerData = exports.assignTelecaller = exports.findDuplicates = exports.getTelecallersList = void 0;
-const cloudinary_1 = require("../config/cloudinary");
+const documentStorage_1 = require("../config/documentStorage");
 const db_1 = __importDefault(require("../config/db"));
 async function getInternalUserId(rawUserId) {
     const normalizedUserId = Array.isArray(rawUserId) ? rawUserId[0] : rawUserId;
@@ -337,14 +337,18 @@ const uploadDocument = async (req, res) => {
             res.status(400).json({ status: 'error', message: 'imageBase64 is required' });
             return;
         }
-        const dataUri = imageBase64.startsWith('data:') ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`;
-        const cloudinaryUrl = await (0, cloudinary_1.uploadToCloudinary)(dataUri, 'customer_docs', `doc_${userId}_${Date.now()}_${fileName.replace(/[^a-zA-Z0-9.]/g, '_')}`);
+        const savedDoc = await (0, documentStorage_1.saveDocumentFile)({
+            userId,
+            documentType: docType || 'missing_doc',
+            originalName: fileName,
+            base64Data: imageBase64,
+        });
         // Update missing docs table for the specific doc
         await db_1.default.query(`
       UPDATE telecaller_missing_docs 
       SET status = 'UPLOADED', customer_update = ? 
       WHERE user_id = ? AND name = ? AND status = 'PENDING'
-    `, [`Uploaded: ${cloudinaryUrl}`, userId, docType]);
+    `, [`Uploaded: ${savedDoc.filePath}`, userId, docType]);
         // Check if all requested docs for this link are now uploaded
         const [linkRows] = await db_1.default.query(`SELECT doc_types FROM telecaller_share_links WHERE id = ?`, [linkId]);
         if (linkRows.length > 0) {
@@ -363,7 +367,7 @@ const uploadDocument = async (req, res) => {
             }
         }
         await logAction(userId, req, 'DOCUMENT UPLOADED', `Type: ${docType}`);
-        res.json({ status: 'success', message: 'Document uploaded successfully', path: cloudinaryUrl });
+        res.json({ status: 'success', message: 'Document uploaded successfully', path: savedDoc.filePath });
     }
     catch (error) {
         console.error('Error uploading document:', error);

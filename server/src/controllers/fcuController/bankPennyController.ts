@@ -27,8 +27,8 @@ export const verifyBankPenny = async (req: Request, res: Response): Promise<void
     const bank = await findBankForPennyVerification(applicationId);
     if (!bank) { res.status(404).json({ status: 'error', message: 'Application not found' }); return; }
 
-    const accountNumber = String(bank.account_number || '').replace(/\s/g, '');
-    const ifscCode = String(bank.ifsc_code || '').trim().toUpperCase();
+    const accountNumber = String(req.body?.accountNumber || bank.account_number || '').replace(/\s/g, '');
+    const ifscCode = String(req.body?.ifscCode || bank.ifsc_code || '').trim().toUpperCase();
     if (!accountNumber || !/^[A-Z]{4}[A-Z0-9]{7}$/.test(ifscCode)) {
       res.status(400).json({ status: 'error', message: 'Valid bank account number and IFSC code are required' }); return;
     }
@@ -79,7 +79,13 @@ export const verifyBankPenny = async (req: Request, res: Response): Promise<void
     };
     const providerSucceeded = response.ok && (!apiResponse?.status?.type || String(apiResponse.status.type).toLowerCase() === 'success');
     if (!providerSucceeded) {
-      res.status(response.ok ? 502 : response.status).json({ status: 'error', message: normalized.message || 'Bank verification failed', data: normalized }); return;
+      const fraudWarning = 'Bank Account ya IFSC code galat hai! Ye insan chor ho sakta hai (Fraud Risk Detected)';
+      res.status(response.ok ? 502 : response.status).json({
+        status: 'error',
+        message: `${fraudWarning} - ${normalized.message || 'Beneficiary validation failed'}`,
+        data: normalized
+      });
+      return;
     }
 
     const accountExists = normalized.result.account_exists === undefined

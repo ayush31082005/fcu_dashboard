@@ -30,6 +30,7 @@ export const findDocumentRequestByApplication = async (applicationId: number) =>
 export const findDocumentRequestByToken = async (token: string) => {
   const [rows]: any = await dbQuery(`
     SELECT r.id, r.application_id, r.token, r.status, r.expires_at, r.created_at,
+      u.id AS userId,
       COALESCE(NULLIF(u.lead_number, ''), CONCAT('GP-LEAD-', LPAD(a.id, 4, '0'))) AS leadId,
       COALESCE(NULLIF(up.full_name, ''), 'Customer') AS customerName,
       (r.expires_at <= NOW()) AS is_expired,
@@ -41,7 +42,7 @@ export const findDocumentRequestByToken = async (token: string) => {
     LEFT JOIN user_profiles up ON up.user_id = u.id
     LEFT JOIN fcu_requested_documents d ON d.request_id = r.id
     WHERE r.token = ?
-    GROUP BY r.id, u.lead_number, up.full_name LIMIT 1
+    GROUP BY r.id, u.id, u.lead_number, up.full_name LIMIT 1
   `, [token]);
   return rows[0] || null;
 };

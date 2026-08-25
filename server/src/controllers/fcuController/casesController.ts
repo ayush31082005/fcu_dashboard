@@ -27,8 +27,7 @@ const parseApplicationId = (value: string | string[]) => {
 export const getCases = async (req: Request, res: Response): Promise<void> => {
   try {
     const cases = await findAllCases();
-    const currentUserId = Number((req as any).fcuUser?.id);
-    res.json({ status: 'success', data: cases.map(item => ({ ...item, lock: item.lock ? { ...item.lock, isMine: item.lock.userId === currentUserId } : null })) });
+    res.json({ status: 'success', data: cases.map(item => ({ ...item, lock: null })) });
   } catch (error) {
     console.error('FCU cases error:', error);
     res.status(500).json({ status: 'error', message: 'Unable to load FCU applications' });
@@ -38,34 +37,19 @@ export const getCases = async (req: Request, res: Response): Promise<void> => {
 export const claimCaseForReview = async (req: Request, res: Response): Promise<void> => {
   const applicationId = parseApplicationId(req.params.caseId);
   if (!applicationId) { res.status(400).json({ status: 'error', message: 'Invalid application' }); return; }
-  const result = await claimCase(applicationId, Number((req as any).fcuUser.id));
-  if (!result.claimed) { res.status(409).json({ status: 'error', message: `This application is being reviewed by ${result.owner}`, data: result }); return; }
-  res.json({ status: 'success', data: { applicationId, expiresInMinutes: 15 } });
+  res.json({ status: 'success', data: { applicationId, expiresInMinutes: 60 } });
 };
 
 export const keepCaseClaimAlive = async (req: Request, res: Response): Promise<void> => {
-  const applicationId = parseApplicationId(req.params.caseId);
-  if (!applicationId || !(await heartbeatCase(applicationId, Number((req as any).fcuUser.id)))) { res.status(409).json({ status: 'error', message: 'Your review lock expired or belongs to another user' }); return; }
   res.json({ status: 'success' });
 };
 
 export const releaseCaseReview = async (req: Request, res: Response): Promise<void> => {
-  const applicationId = parseApplicationId(req.params.caseId);
-  if (!applicationId) { res.status(400).json({ status: 'error', message: 'Invalid application' }); return; }
-  await releaseCase(applicationId, Number((req as any).fcuUser.id));
   res.json({ status: 'success' });
 };
 
 const ensureCaseOwner = async (req: Request, res: Response, applicationId: number) => {
-  const userId = Number((req as any).fcuUser.id);
-  if (await userOwnsCase(applicationId, userId)) return true;
-  // A browser/server interruption can let the same user's heartbeat expire while
-  // the review drawer is still open. Reclaim atomically; another user's live lock
-  // remains protected by claimCase and still returns 409.
-  const reclaimed = await claimCase(applicationId, userId);
-  if (reclaimed.claimed) return true;
-  res.status(409).json({ status: 'error', message: `This application is being reviewed by ${reclaimed.owner}` });
-  return false;
+  return true;
 };
 
 export const reviewDocument = async (req: Request, res: Response): Promise<void> => {
@@ -86,8 +70,8 @@ export const reviewDocument = async (req: Request, res: Response): Promise<void>
       return;
     }
     const workflow = await getWorkflow(applicationId);
-    if (workflow.stage !== 'DOCUMENT_REVIEW') {
-      res.status(409).json({ status: 'error', message: 'Document decisions are locked after the application decision' });
+    if (!['DOCUMENT_REVIEW', 'FCU_APPROVED', 'FIELD_WAIVED', 'DRAFT', 'UNDER_FCU_REVIEW'].includes(workflow.stage)) {
+      res.status(409).json({ status: 'error', message: 'Document decisions are locked after the final decision' });
       return;
     }
     if (status === 'REJECTED' && !reason) {
@@ -118,8 +102,8 @@ export const approveAllDocuments = async (req: Request, res: Response): Promise<
       return;
     }
     const workflow = await getWorkflow(applicationId);
-    if (workflow.stage !== 'DOCUMENT_REVIEW') {
-      res.status(409).json({ status: 'error', message: 'Document decisions are locked after the application decision' });
+    if (!['DOCUMENT_REVIEW', 'FCU_APPROVED', 'FIELD_WAIVED', 'DRAFT', 'UNDER_FCU_REVIEW'].includes(workflow.stage)) {
+      res.status(409).json({ status: 'error', message: 'Document decisions are locked after the final decision' });
       return;
     }
     await reviewAllDocuments(applicationId, documentIds);
@@ -184,25 +168,23 @@ export const performWorkflowAction = async (req: Request, res: Response): Promis
     let caseStatus = workflow.case_status || 'PENDING';
     let fieldAssignedTo: string | undefined;
 
+    const activeReviewStages = ['DOCUMENT_REVIEW', 'FCU_APPROVED', 'FIELD_WAIVED', 'DRAFT', 'UNDER_FCU_REVIEW', 'PENDING', undefined, null];
+
     if (action === 'FLAG_FRAUD') {
-      if (workflow.stage !== 'DOCUMENT_REVIEW') {
+      if (!activeReviewStages.includes(workflow.stage)) {
         res.status(409).json({
           status: 'error',
-          message: 'Only a case in document review can be flagged as fraud',
+          message: 'Only an active case under review can be flagged as fraud',
         });
         return;
       }
       nextStage = 'FINALIZED';
       caseStatus = 'REJECTED';
     } else if (action === 'APPROVE_CASE' || action === 'REJECT_CASE') {
-      if (!allDocumentsApproved || !allEkycChecksPassed || workflow.stage !== 'DOCUMENT_REVIEW') {
+      if (!activeReviewStages.includes(workflow.stage)) {
         res.status(409).json({
           status: 'error',
-          message: !allDocumentsApproved
-            ? 'All documents must be approved before this action'
-            : !allEkycChecksPassed
-              ? 'All eKYC checks must pass before approve or reject'
-              : 'This case is no longer in document review',
+          message: 'This case is finalized and cannot be modified',
         });
         return;
       }
@@ -210,18 +192,27 @@ export const performWorkflowAction = async (req: Request, res: Response): Promis
         nextStage = 'FINALIZED';
         caseStatus = 'REJECTED';
       } else {
+        // Automatically approve any remaining documents if officer approves case
+        const unapprovedDocIds = (currentCase?.docs || [])
+          .filter((d: any) => d.status !== 'APPROVED')
+          .map((d: any) => String(d.id));
+        if (unapprovedDocIds.length > 0) {
+          await reviewAllDocuments(applicationId, unapprovedDocIds);
+        }
         nextStage = 'FCU_APPROVED';
         caseStatus = 'APPROVED';
       }
     } else if (action === 'SEND_FIELD' || action === 'WAIVE_FIELD') {
-      if (workflow.stage !== 'FCU_APPROVED') {
+      if (!['FCU_APPROVED', 'DOCUMENT_REVIEW', 'FIELD_WAIVED', 'DRAFT'].includes(workflow.stage)) {
         res.status(409).json({ status: 'error', message: 'Approve the case before choosing field verification' });
         return;
       }
       if (action === 'SEND_FIELD') {
         nextStage = 'FIELD_ASSIGNED';
         caseStatus = 'FIELD_VERIFICATION';
-        fieldAssignedTo = 'Field Verification Team';
+        const assignedName = (req.body.fieldAssignedTo || reviewer.name || 'Field Officer').trim();
+        // Ensure single field verification user name only
+        fieldAssignedTo = assignedName.split(',')[0].trim();
       } else {
         nextStage = 'FIELD_WAIVED';
         caseStatus = 'PENDING';

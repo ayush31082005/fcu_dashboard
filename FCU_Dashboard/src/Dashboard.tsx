@@ -4,7 +4,7 @@ import {
   AreaChart, Area, RadialBarChart, RadialBar,
 } from 'recharts'
 import { useEffect, useState } from 'react'
-import { API_BASE_URL } from './LoginPage'
+import { fcuFetch } from './utils/fcuApi'
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
@@ -15,7 +15,7 @@ const dailyCases = [
   { day: 'Thu', assigned: 26, completed: 21, pending: 5 },
   { day: 'Fri', assigned: 30, completed: 24, pending: 6 },
   { day: 'Sat', assigned: 12, completed: 10, pending: 2 },
-  { day: 'Sun', assigned: 8,  completed: 6,  pending: 2 },
+  { day: 'Sun', assigned: 8, completed: 6, pending: 2 },
 ]
 
 const tatTrend = [
@@ -30,20 +30,20 @@ const tatTrend = [
 ]
 
 const executives = [
-  { name: 'Priya Mehta',    cases: 47, completed: 43, pending: 4, tat: '1.8d', score: 92 },
-  { name: 'Rohit Verma',    cases: 41, completed: 36, pending: 5, tat: '2.1d', score: 87 },
-  { name: 'Sneha Rao',      cases: 38, completed: 35, pending: 3, tat: '2.0d', score: 92 },
-  { name: 'Amit Chauhan',   cases: 35, completed: 29, pending: 6, tat: '2.6d', score: 83 },
-  { name: 'Kavita Singh',   cases: 33, completed: 31, pending: 2, tat: '1.9d', score: 94 },
-  { name: 'Deepak Sharma',  cases: 28, completed: 22, pending: 6, tat: '3.1d', score: 79 },
+  { name: 'Priya Mehta', cases: 47, completed: 43, pending: 4, tat: '1.8d', score: 92 },
+  { name: 'Rohit Verma', cases: 41, completed: 36, pending: 5, tat: '2.1d', score: 87 },
+  { name: 'Sneha Rao', cases: 38, completed: 35, pending: 3, tat: '2.0d', score: 92 },
+  { name: 'Amit Chauhan', cases: 35, completed: 29, pending: 6, tat: '2.6d', score: 83 },
+  { name: 'Kavita Singh', cases: 33, completed: 31, pending: 2, tat: '1.9d', score: 94 },
+  { name: 'Deepak Sharma', cases: 28, completed: 22, pending: 6, tat: '3.1d', score: 79 },
 ]
 
 const branches = [
-  { name: 'Panrose Delhi',    assigned: 58, approved: 38, rejected: 12, pending: 8,  tat: 2.1 },
-  { name: 'Nazut Delhi',      assigned: 47, approved: 30, rejected: 9,  pending: 8,  tat: 2.4 },
-  { name: 'Goztep Varanasi',  assigned: 34, approved: 20, rejected: 8,  pending: 6,  tat: 2.8 },
-  { name: 'Goztep Jaipur',    assigned: 29, approved: 19, rejected: 5,  pending: 5,  tat: 2.3 },
-  { name: 'Nazut Bhopal',     assigned: 22, approved: 14, rejected: 4,  pending: 4,  tat: 3.0 },
+  { name: 'Panrose Delhi', assigned: 58, approved: 38, rejected: 12, pending: 8, tat: 2.1 },
+  { name: 'Nazut Delhi', assigned: 47, approved: 30, rejected: 9, pending: 8, tat: 2.4 },
+  { name: 'Goztep Varanasi', assigned: 34, approved: 20, rejected: 8, pending: 6, tat: 2.8 },
+  { name: 'Goztep Jaipur', assigned: 29, approved: 19, rejected: 5, pending: 5, tat: 2.3 },
+  { name: 'Nazut Bhopal', assigned: 22, approved: 14, rejected: 4, pending: 4, tat: 3.0 },
 ]
 
 const approvalTrend = [
@@ -52,25 +52,25 @@ const approvalTrend = [
   { month: 'May', approved: 65, rejected: 22, pending: 13 },
   { month: 'Jun', approved: 78, rejected: 12, pending: 10 },
   { month: 'Jul', approved: 74, rejected: 16, pending: 10 },
-  { month: 'Aug', approved: 81, rejected: 11, pending: 8  },
+  { month: 'Aug', approved: 81, rejected: 11, pending: 8 },
 ]
 
 const caseStatusPie = [
-  { name: 'Approved',         value: 127, color: '#111827' },
-  { name: 'Rejected',         value: 43,  color: '#6b7280' },
-  { name: 'Pending',          value: 28,  color: '#9ca3af' },
-  { name: 'Document Pending', value: 19,  color: '#d1d5db' },
-  { name: 'Under Review',     color: '#374151', value: 14 },
-  { name: 'Disbursed',        value: 89,  color: '#4b5563' },
+  { name: 'Approved', value: 127, color: '#111827' },
+  { name: 'Rejected', value: 43, color: '#6b7280' },
+  { name: 'Pending', value: 28, color: '#9ca3af' },
+  { name: 'Document Pending', value: 19, color: '#d1d5db' },
+  { name: 'Under Review', color: '#374151', value: 14 },
+  { name: 'Disbursed', value: 89, color: '#4b5563' },
 ]
 
 const purposeBar = [
   { purpose: 'Home Repair', count: 68 },
-  { purpose: 'Education',   count: 54 },
-  { purpose: 'Business',    count: 47 },
-  { purpose: 'Medical',     count: 39 },
+  { purpose: 'Education', count: 54 },
+  { purpose: 'Business', count: 47 },
+  { purpose: 'Medical', count: 39 },
   { purpose: 'Agriculture', count: 22 },
-  { purpose: 'Personal',    count: 18 },
+  { purpose: 'Personal', count: 18 },
 ]
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
@@ -129,13 +129,13 @@ const TOOLTIP_STYLE = {
 
 // ── Dashboard ──────────────────────────────────────────────────────────────────
 
-export default function Dashboard() {
+export default function Dashboard({ cases = [] }: { cases?: any[] }) {
   const [dashboardData, setDashboardData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/fcu/auth/dashboard`, { credentials: 'include' })
+    fcuFetch('/api/fcu/auth/dashboard')
       .then(async response => {
         const result = await response.json().catch(() => ({}))
         if (!response.ok) throw new Error(result.message || 'Unable to load dashboard')
@@ -159,22 +159,38 @@ export default function Dashboard() {
   }))
   const purposeBar = dashboardData?.purposeBar || []
   const summary = dashboardData?.summary
-  const totalAssigned  = dailyCases.reduce((s, d) => s + d.assigned, 0)
-  const totalCompleted = dailyCases.reduce((s, d) => s + d.completed, 0)
-  const totalPending   = dailyCases.reduce((s, d) => s + d.pending, 0)
-  const avgTAT         = Number(summary?.avgTat || 0).toFixed(1)
-  const totalCases     = Number(summary?.totalCases || 0)
-  const approvedCases  = Number(summary?.approved || 0)
-  const rejectedCases  = Number(summary?.rejected || 0)
-  const approvalRatio  = Number(summary?.approvalRatio || 0).toFixed(1)
-  const rejectionRatio = Number(summary?.rejectionRatio || 0).toFixed(1)
+
+  const isSentToFcu = (caseItem: any) => {
+    const raw = String(caseItem.sourceStatus || '').toUpperCase().replace(/[\s_-]+/g, '_')
+    return raw === 'SENT_TO_FCU' || raw === 'SENT_FCU' || raw.includes('FCU')
+  }
+
+  // If cases are provided from frontend, sync perfectly with all 6 FCU tabs
+  const hasFrontendCases = Array.isArray(cases) && cases.length > 0
+  const totalCases = hasFrontendCases ? cases.length : Number(summary?.totalCases || 0)
+  const totalAssigned = totalCases
+  const approvedCases = hasFrontendCases ? cases.filter(c => c.status === 'APPROVED' || c.status === 'FCU_APPROVED').length : Number(summary?.approved || 0)
+  const rejectedCases = hasFrontendCases ? cases.filter(c => c.status.includes('REJECT') || c.status === 'FORWARDED_REJECT').length : Number(summary?.rejected || 0)
+  const pendingCasesList = hasFrontendCases ? cases.filter(c => !['APPROVED', 'FCU_APPROVED', 'DISBURSED', 'SENT_TO_CREDIT'].includes(c.status) && !c.status.includes('REJECT') && c.workflowStage !== 'FINALIZED' && isSentToFcu(c)) : []
+  const totalPending = hasFrontendCases ? pendingCasesList.length : Number(summary?.pending || 0)
+  const totalCompleted = hasFrontendCases ? Math.max(0, totalCases - totalPending) : Number(summary?.completed || 0)
+  const avgTAT = Number(summary?.avgTat || 0.1).toFixed(1)
+  const approvalRatio = totalCases ? Number(((approvedCases / totalCases) * 100).toFixed(1)) : 0
+  const rejectionRatio = totalCases ? Number(((rejectedCases / totalCases) * 100).toFixed(1)) : 0
 
   return (
     <div className="flex-1 overflow-auto bg-[#f5f7fb] p-3 sm:p-4">
       <div className="w-full space-y-5">
 
-        {loading && <div className="rounded border border-blue-100 bg-blue-50 px-4 py-3 text-xs font-semibold text-blue-700">Loading live dashboard data…</div>}
-        {loadError && <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-700">{loadError}</div>}
+        {loading && !dashboardData && !hasFrontendCases && (
+          <div className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/80 px-4 py-2.5 text-xs font-medium text-blue-700">
+            <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+            Loading live dashboard analytics…
+          </div>
+        )}
+        {loadError && !hasFrontendCases && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-semibold text-red-700">{loadError}</div>
+        )}
 
         {/* Page Header */}
         <div className="flex items-center justify-between">
@@ -196,7 +212,7 @@ export default function Dashboard() {
 
         {/* KPI Row 1 */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <KpiCard label="Daily Cases Assigned" value={String(totalAssigned)} sub="Last 7 days" color="border-blue-500" icon="📋" />
+          <KpiCard label="Total Cases Assigned" value={String(totalCases || totalAssigned)} sub="All FCU assigned cases" color="border-blue-500" icon="📋" />
           <KpiCard label="Pending Verification" value={String(summary?.pending ?? totalPending)} sub="Awaiting FCU review" color="border-amber-500" icon="⏳" />
           <KpiCard label="Completed Verification" value={String(summary?.completed ?? totalCompleted)} sub="Workflow completed" color="border-emerald-500" icon="✅" />
           <KpiCard label="Average TAT" value={`${avgTAT} days`} sub="Turnaround time" color="border-purple-500" icon="⏱" />
@@ -204,9 +220,9 @@ export default function Dashboard() {
 
         {/* KPI Row 2 */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <KpiCard label="Total Cases (MTD)"        value={String(totalCases)}      sub="Month to date"          color="border-slate-400"   icon="🗂" />
-          <KpiCard label="Approval Ratio"           value={`${approvalRatio}%`}     sub={`${approvedCases} approved`}   color="border-emerald-500" icon="✓" trend={{ val: '+2.1%', up: true }} />
-          <KpiCard label="Rejection Ratio"          value={`${rejectionRatio}%`}    sub={`${rejectedCases} rejected`}   color="border-red-500"     icon="✗" trend={{ val: '−1.4%', up: true }} />
+          <KpiCard label="Total Cases (MTD)" value={String(totalCases)} sub="Month to date" color="border-slate-400" icon="🗂" />
+          <KpiCard label="Approval Ratio" value={`${approvalRatio}%`} sub={`${approvedCases} approved`} color="border-emerald-500" icon="✓" trend={{ val: '+2.1%', up: true }} />
+          <KpiCard label="Rejection Ratio" value={`${rejectionRatio}%`} sub={`${rejectedCases} rejected`} color="border-red-500" icon="✗" trend={{ val: '−1.4%', up: true }} />
           <KpiCard label="Fraud Detected" value={String(summary?.fraudDetected || 0)} sub="Flagged cases" color="border-rose-600" icon="🚩" />
         </div>
 
@@ -221,9 +237,9 @@ export default function Dashboard() {
                 <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
                 <Tooltip contentStyle={TOOLTIP_STYLE} />
                 <Legend wrapperStyle={{ fontSize: 10 }} />
-                <Bar dataKey="assigned"  name="Assigned"  fill="#111827" radius={[3,3,0,0]} />
-                <Bar dataKey="completed" name="Completed" fill="#6b7280" radius={[3,3,0,0]} />
-                <Bar dataKey="pending"   name="Pending"   fill="#d1d5db" radius={[3,3,0,0]} />
+                <Bar dataKey="assigned" name="Assigned" fill="#111827" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="completed" name="Completed" fill="#6b7280" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="pending" name="Pending" fill="#d1d5db" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -234,7 +250,7 @@ export default function Dashboard() {
               <AreaChart data={tatTrend}>
                 <defs>
                   <linearGradient id="tatGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#111827" stopOpacity={0.18} />
+                    <stop offset="5%" stopColor="#111827" stopOpacity={0.18} />
                     <stop offset="95%" stopColor="#111827" stopOpacity={0} />
                   </linearGradient>
                 </defs>
@@ -261,7 +277,7 @@ export default function Dashboard() {
                 <Legend wrapperStyle={{ fontSize: 10 }} />
                 <Line type="monotone" dataKey="approved" name="Approved" stroke="#111827" strokeWidth={2} dot={{ r: 3 }} />
                 <Line type="monotone" dataKey="rejected" name="Rejected" stroke="#6b7280" strokeWidth={2} dot={{ r: 3 }} />
-                <Line type="monotone" dataKey="pending"  name="Pending"  stroke="#9ca3af" strokeWidth={2} dot={{ r: 3 }} strokeDasharray="4 2" />
+                <Line type="monotone" dataKey="pending" name="Pending" stroke="#9ca3af" strokeWidth={2} dot={{ r: 3 }} strokeDasharray="4 2" />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -324,7 +340,7 @@ export default function Dashboard() {
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold"
-                          style={{ backgroundColor: ['#3b82f6','#8b5cf6','#ec4899','#10b981','#f59e0b','#6366f1'][i] }}>
+                          style={{ backgroundColor: ['#3b82f6', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b', '#6366f1'][i] }}>
                           {e.name.split(' ').map(n => n[0]).join('')}
                         </div>
                         <span className="font-semibold text-slate-800">{e.name}</span>
@@ -369,9 +385,9 @@ export default function Dashboard() {
                   <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={110} />
                   <Tooltip contentStyle={TOOLTIP_STYLE} />
                   <Legend wrapperStyle={{ fontSize: 10 }} />
-                  <Bar dataKey="approved" name="Approved" fill="#22c55e" stackId="a" radius={[0,0,0,0]} />
+                  <Bar dataKey="approved" name="Approved" fill="#22c55e" stackId="a" radius={[0, 0, 0, 0]} />
                   <Bar dataKey="rejected" name="Rejected" fill="#ef4444" stackId="a" />
-                  <Bar dataKey="pending"  name="Pending"  fill="#f59e0b" stackId="a" radius={[0,3,3,0]} />
+                  <Bar dataKey="pending" name="Pending" fill="#f59e0b" stackId="a" radius={[0, 3, 3, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -380,7 +396,7 @@ export default function Dashboard() {
               <table className="w-full text-[10px]">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100">
-                    {['Branch','Assigned','Approved','Rejected','Pending','Approval %','Rejection %','Avg TAT'].map(h => (
+                    {['Branch', 'Assigned', 'Approved', 'Rejected', 'Pending', 'Approval %', 'Rejection %', 'Avg TAT'].map(h => (
                       <th key={h} className="px-3 py-1.5 text-left font-semibold text-slate-600 uppercase tracking-wide">{h}</th>
                     ))}
                   </tr>
@@ -420,7 +436,7 @@ export default function Dashboard() {
                   <XAxis type="number" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} />
                   <YAxis dataKey="purpose" type="category" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} width={72} />
                   <Tooltip contentStyle={TOOLTIP_STYLE} />
-                  <Bar dataKey="count" name="Cases" fill="#3b82f6" radius={[0,3,3,0]} />
+                  <Bar dataKey="count" name="Cases" fill="#3b82f6" radius={[0, 3, 3, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

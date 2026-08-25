@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { ResultSetHeader, RowDataPacket } from 'mysql2';
-import { uploadToCloudinary } from '../config/cloudinary';
+import { saveDocumentFile } from '../config/documentStorage';
 import pool from '../config/db';
 
 async function getInternalUserId(rawUserId: string | string[]): Promise<number | null> {
@@ -371,15 +371,19 @@ export const uploadDocument = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    const dataUri = imageBase64.startsWith('data:') ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`;
-    const cloudinaryUrl = await uploadToCloudinary(dataUri, 'customer_docs', `doc_${userId}_${Date.now()}_${fileName.replace(/[^a-zA-Z0-9.]/g, '_')}`);
+    const savedDoc = await saveDocumentFile({
+      userId,
+      documentType: docType || 'missing_doc',
+      originalName: fileName,
+      base64Data: imageBase64,
+    });
 
     // Update missing docs table for the specific doc
     await pool.query(`
       UPDATE telecaller_missing_docs 
       SET status = 'UPLOADED', customer_update = ? 
       WHERE user_id = ? AND name = ? AND status = 'PENDING'
-    `, [`Uploaded: ${cloudinaryUrl}`, userId, docType]);
+    `, [`Uploaded: ${savedDoc.filePath}`, userId, docType]);
 
     // Check if all requested docs for this link are now uploaded
     const [linkRows]: any = await pool.query(`SELECT doc_types FROM telecaller_share_links WHERE id = ?`, [linkId]);
@@ -401,7 +405,7 @@ export const uploadDocument = async (req: Request, res: Response): Promise<void>
     }
 
     await logAction(userId, req, 'DOCUMENT UPLOADED', `Type: ${docType}`);
-    res.json({ status: 'success', message: 'Document uploaded successfully', path: cloudinaryUrl });
+    res.json({ status: 'success', message: 'Document uploaded successfully', path: savedDoc.filePath });
   } catch (error: any) {
     console.error('Error uploading document:', error);
     res.status(500).json({ status: 'error', message: 'Internal server error', error: error?.message });

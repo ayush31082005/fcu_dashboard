@@ -23,18 +23,21 @@ type LeadCase = {
 
 const STATUS_OPTIONS = [
   'All Statuses',
-  'Disbursed',
-  'Document Pending',
-  'Rejected',
   'Pending',
   'Approved',
+  'Rejected by FCU',
+  'Rejected by Credit',
   'Under Review',
+  'Document Pending',
+  'Disbursed',
 ]
 
 const STATUS_MAP: Record<string, string> = {
   'All Statuses': '',
   Disbursed: 'DISBURSED',
   'Document Pending': 'DOCUMENT_PENDING',
+  'Rejected by FCU': 'REJECTED_BY_FCU',
+  'Rejected by Credit': 'REJECTED_BY_CREDIT',
   Rejected: 'REJECTED',
   Pending: 'PENDING',
   Approved: 'APPROVED',
@@ -42,20 +45,32 @@ const STATUS_MAP: Record<string, string> = {
 }
 
 function TrackStatusBadge({ status }: { status: string }) {
-  const palette: Record<string, string> = {
-    DISBURSED: 'bg-slate-100 text-slate-800',
-    DOCUMENT_PENDING: 'bg-zinc-100 text-zinc-800',
-    REJECTED: 'bg-stone-100 text-stone-800',
-    FORWARDED_REJECT: 'bg-zinc-100 text-zinc-800',
-    PENDING: 'bg-slate-100 text-slate-700',
-    APPROVED: 'bg-zinc-100 text-zinc-900',
-    SENT_TO_CREDIT: 'bg-slate-100 text-slate-900',
-    UNDER_REVIEW: 'bg-zinc-100 text-zinc-800',
+  const palette: Record<string, { label: string; bg: string }> = {
+    DISBURSED: { label: 'Disbursed', bg: 'bg-slate-100 text-slate-800' },
+    DOCUMENT_PENDING: { label: 'Document Pending', bg: 'bg-zinc-100 text-zinc-800' },
+    REJECTED: { label: 'Rejected', bg: 'bg-rose-50 text-rose-800 border border-rose-200' },
+    REJECTED_BY_FCU: { label: 'Rejected by FCU', bg: 'bg-rose-100 text-rose-800 border border-rose-200' },
+    FCU_REJECTED: { label: 'Rejected by FCU', bg: 'bg-rose-100 text-rose-800 border border-rose-200' },
+    FORWARDED_REJECT: { label: 'Rejected by FCU', bg: 'bg-rose-100 text-rose-800 border border-rose-200' },
+    REJECTED_BY_CREDIT: { label: 'Rejected by Credit', bg: 'bg-amber-100 text-amber-800 border border-amber-200' },
+    CREDIT_REJECTED: { label: 'Rejected by Credit', bg: 'bg-amber-100 text-amber-800 border border-amber-200' },
+    PENDING: { label: 'Pending', bg: 'bg-slate-100 text-slate-700' },
+    APPROVED: { label: 'Approved', bg: 'bg-zinc-100 text-zinc-900' },
+    FCU_APPROVED: { label: 'Approved by FCU', bg: 'bg-emerald-50 text-emerald-800 border border-emerald-200' },
+    SENT_TO_CREDIT: { label: 'Sent to Credit', bg: 'bg-blue-50 text-blue-900 border border-blue-200' },
+    UNDER_REVIEW: { label: 'Under Review', bg: 'bg-zinc-100 text-zinc-800' },
+    FIELD_VERIFICATION: { label: 'Field Verification', bg: 'bg-slate-100 text-slate-800' },
+    HOLD: { label: 'Hold', bg: 'bg-slate-100 text-slate-700' },
+  }
+
+  const found = palette[status] || {
+    label: status.replace(/_/g, ' '),
+    bg: 'bg-slate-100 text-slate-600',
   }
 
   return (
-    <span className={`inline-flex items-center rounded px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${palette[status] ?? 'bg-slate-100 text-slate-600'}`}>
-      {status.replace(/_/g, ' ')}
+    <span className={`inline-flex items-center rounded px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${found.bg}`}>
+      {found.label}
     </span>
   )
 }

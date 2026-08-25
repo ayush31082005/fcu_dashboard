@@ -91,12 +91,29 @@ app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 app.use(cookieParser());
 
+import { getDocumentStoragePath } from './config/documentStorage';
+
+const customerDocsDirectory = getDocumentStoragePath();
 const sharedFieldUploadDirectory = process.env.FIELD_VERIFICATION_UPLOAD_DIR
   || path.resolve(__dirname, '../../../mobile app/server/uploads/field-verification');
 
-// Support standard routes and /FCU subpath routes on cPanel
-const prefixes = ['', '/FCU', '/fcu'];
+// Support standard routes and /FCU, /FCUTEAM subpath routes on cPanel
+const prefixes = [
+  '',
+  '/FCU',
+  '/fcu',
+  '/FCUTEAM',
+  '/fcuteam',
+  '/FCU_TEAM',
+  '/fcu_team',
+  '/FCUPANEL',
+  '/fcupanel',
+  '/FCU_PANEL',
+  '/fcu_panel',
+];
 prefixes.forEach(prefix => {
+  app.use(`${prefix}/customer_documents`, express.static(customerDocsDirectory));
+  app.use(`${prefix}/uploads/customer_documents`, express.static(customerDocsDirectory));
   app.use(`${prefix}/uploads/field-verification`, express.static(sharedFieldUploadDirectory));
   app.use(`${prefix}/uploads`, express.static(path.join(__dirname, '../uploads')));
   app.use(`${prefix}/api/auth`, authRoutes);
@@ -148,6 +165,22 @@ prefixes.forEach(prefix => {
     });
   }
 });
+
+const ensureColumn = async (tableName: string, columnName: string, columnDef: string) => {
+  try {
+    const [rows]: any = await pool.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+      [tableName, columnName]
+    );
+    if (!rows || rows.length === 0) {
+      await pool.query(`ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${columnDef}`);
+    }
+  } catch (error: any) {
+    if (error?.code !== 'ER_DUP_FIELDNAME') {
+      console.warn(`Warning ensuring column ${tableName}.${columnName}:`, error?.message);
+    }
+  }
+};
 
 const initDatabase = async () => {
   try {
@@ -359,13 +392,13 @@ const initDatabase = async () => {
       FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )`);
-    await pool.query(`ALTER TABLE fcu_aadhaar_fetches ADD COLUMN IF NOT EXISTS relation VARCHAR(40) NULL AFTER request_id`);
-    await pool.query(`ALTER TABLE fcu_aadhaar_fetches ADD COLUMN IF NOT EXISTS pan_number VARCHAR(20) NULL AFTER aadhaar_number`);
-    await pool.query(`ALTER TABLE fcu_aadhaar_fetches ADD COLUMN IF NOT EXISTS first_name VARCHAR(120) NULL AFTER full_name`);
-    await pool.query(`ALTER TABLE fcu_aadhaar_fetches ADD COLUMN IF NOT EXISTS middle_name VARCHAR(120) NULL AFTER first_name`);
-    await pool.query(`ALTER TABLE fcu_aadhaar_fetches ADD COLUMN IF NOT EXISTS last_name VARCHAR(120) NULL AFTER middle_name`);
+    await ensureColumn('fcu_aadhaar_fetches', 'relation', 'VARCHAR(40) NULL AFTER request_id');
+    await ensureColumn('fcu_aadhaar_fetches', 'pan_number', 'VARCHAR(20) NULL AFTER aadhaar_number');
+    await ensureColumn('fcu_aadhaar_fetches', 'first_name', 'VARCHAR(120) NULL AFTER full_name');
+    await ensureColumn('fcu_aadhaar_fetches', 'middle_name', 'VARCHAR(120) NULL AFTER first_name');
+    await ensureColumn('fcu_aadhaar_fetches', 'last_name', 'VARCHAR(120) NULL AFTER middle_name');
     // Keep the lender-facing lead reference separate from the internal GP lead number.
-    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS lead_reference_number VARCHAR(50) NULL AFTER lead_number`);
+    await ensureColumn('users', 'lead_reference_number', 'VARCHAR(50) NULL AFTER lead_number');
     await pool.query(`
       UPDATE users
       SET lead_reference_number = CONCAT('BLP1MP', LPAD(id, 2, '0'))

@@ -21,21 +21,10 @@ const TRANSIENT_DB_ERRORS = new Set([
     'PROTOCOL_CONNECTION_LOST',
 ]);
 const loadSidebarFromDatabase = async (email) => {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-        try {
-            const user = await (0, authModel_1.findFcuUserByEmail)(email);
-            if (!user)
-                return null;
-            return { user, data: await (0, sidebarModel_1.getSidebarData)(user.id) };
-        }
-        catch (error) {
-            if (!TRANSIENT_DB_ERRORS.has(error?.code) || attempt === 1)
-                throw error;
-            console.warn(`FCU sidebar database connection reset; retrying (${error.code}).`);
-            await new Promise(resolve => setTimeout(resolve, 200));
-        }
-    }
-    return null;
+    const user = await (0, authModel_1.findFcuUserByEmail)(email);
+    if (!user)
+        return null;
+    return { user, data: await (0, sidebarModel_1.getSidebarData)(user.id) };
 };
 const getSidebar = async (req, res) => {
     try {

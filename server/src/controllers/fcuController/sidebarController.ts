@@ -18,18 +18,9 @@ const TRANSIENT_DB_ERRORS = new Set([
 ]);
 
 const loadSidebarFromDatabase = async (email: string) => {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const user = await findFcuUserByEmail(email);
-      if (!user) return null;
-      return { user, data: await getSidebarData(user.id) };
-    } catch (error: any) {
-      if (!TRANSIENT_DB_ERRORS.has(error?.code) || attempt === 1) throw error;
-      console.warn(`FCU sidebar database connection reset; retrying (${error.code}).`);
-      await new Promise(resolve => setTimeout(resolve, 200));
-    }
-  }
-  return null;
+  const user = await findFcuUserByEmail(email);
+  if (!user) return null;
+  return { user, data: await getSidebarData(user.id) };
 };
 
 export const getSidebar = async (req: Request, res: Response): Promise<void> => {

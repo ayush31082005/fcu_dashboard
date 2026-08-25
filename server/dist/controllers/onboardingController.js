@@ -5,7 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getDashboardData = exports.getUserData = exports.saveMetadata = exports.uploadSelfie = exports.saveAadhaarDetails = exports.saveReferenceDetails = exports.saveBankDetails = exports.saveEmploymentDetails = exports.savePersonalDetails = exports.saveBasicDetails = void 0;
 const db_1 = __importDefault(require("../config/db"));
-const cloudinary_1 = require("../config/cloudinary");
+const documentStorage_1 = require("../config/documentStorage");
 const saveBasicDetails = async (req, res) => {
     try {
         const { userId, employment, salary, loanAmount, purpose, runningLoan, email, officialEmail } = req.body;
@@ -217,14 +217,16 @@ const uploadSelfie = async (req, res) => {
             res.status(400).json({ status: 'error', message: 'userId and imageBase64 are required' });
             return;
         }
-        const dataUri = imageBase64.startsWith('data:') ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`;
-        const cloudinaryUrl = await (0, cloudinary_1.uploadToCloudinary)(dataUri, 'selfies', `selfie_${userId}_${Date.now()}`);
+        const saved = await (0, documentStorage_1.saveSelfieFile)({
+            userId,
+            base64Data: imageBase64,
+        });
         const query = `
       INSERT INTO kyc_documents (user_id, selfie_path) 
       VALUES (?, ?)
     `;
-        await db_1.default.query(query, [userId, cloudinaryUrl]);
-        res.status(200).json({ status: 'success', message: 'Selfie uploaded successfully', path: cloudinaryUrl });
+        await db_1.default.query(query, [userId, saved.filePath]);
+        res.status(200).json({ status: 'success', message: 'Selfie uploaded successfully', path: saved.filePath });
     }
     catch (error) {
         console.error('uploadSelfie error:', error);
